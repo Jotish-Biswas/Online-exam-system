@@ -53,7 +53,7 @@
     </nav>
 
     {{-- ── Flash Messages ── --}}
-    @if(session('success') || session('error'))
+    @if(session('success') || session('error') || $errors->any())
     <div style="max-width:1120px; margin:0.75rem auto; padding:0 1.25rem;" id="flashMessages">
         @if(session('success'))
         <div class="notice notice--success" role="alert">
@@ -66,6 +66,13 @@
         <div class="notice notice--danger" role="alert">
             <svg class="notice__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             <span>{{ session('error') }}</span>
+            <button onclick="this.closest('.notice').remove()" style="margin-left:auto; background:none; border:none; cursor:pointer; color:inherit; padding:0; line-height:1; opacity:0.6; font-size:1rem;">&times;</button>
+        </div>
+        @endif
+        @if($errors->any())
+        <div class="notice notice--danger" role="alert">
+            <svg class="notice__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span>{{ $errors->first() }}</span>
             <button onclick="this.closest('.notice').remove()" style="margin-left:auto; background:none; border:none; cursor:pointer; color:inherit; padding:0; line-height:1; opacity:0.6; font-size:1rem;">&times;</button>
         </div>
         @endif

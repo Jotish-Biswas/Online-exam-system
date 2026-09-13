@@ -167,16 +167,19 @@
             @php
                 $sa = $examResult->studentAnswers->where('question_id', $question->id)->first();
                 $qMarks = (float)($question->marks ?? 1.0);
-                if ($question->question_type === 'multiple') {
+                if ($question->question_type === 'file_upload') {
+                    $isCorrect = $sa && $sa->is_graded && (float)$sa->manual_score >= $qMarks;
+                    $earnedMarks = ($sa && $sa->is_graded) ? min($qMarks, max(0, (float)$sa->manual_score)) : 0;
+                } elseif ($question->question_type === 'multiple') {
                     $selectedIds = $examResult->studentAnswers->where('question_id', $question->id)->pluck('answer_id')->filter()->toArray();
                     $correctIds  = $question->answers->where('is_correct', true)->pluck('id')->toArray();
                     sort($selectedIds); sort($correctIds);
                     $isCorrect = $selectedIds === $correctIds && !empty($selectedIds);
+                    $earnedMarks = $isCorrect ? $qMarks : ($answered && $exam->negative_marking > 0 ? -$exam->negative_marking : 0);
                 } else {
-                    $isCorrect = $sa && $sa->is_correct;
+                    $isCorrect = $sa && $sa->answer && $sa->answer->is_correct;
+                    $earnedMarks = $isCorrect ? $qMarks : ($answered && $exam->negative_marking > 0 ? -$exam->negative_marking : 0);
                 }
-                $answered = $sa !== null;
-                $earnedMarks = $isCorrect ? $qMarks : ($answered && $exam->negative_marking > 0 ? -$exam->negative_marking : 0);
             @endphp
             <tr>
                 <td>{{ $qIdx + 1 }}</td>

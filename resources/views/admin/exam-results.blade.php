@@ -318,7 +318,7 @@
                 <a href="{{ route('admin.export-results-csv', $exam->id) }}" class="btn btn-outline"><i class="fas fa-file-csv"></i> CSV</a>
                 <a href="{{ route('admin.print-results', $exam->id) }}" target="_blank" class="btn btn-outline"><i class="fas fa-print"></i> Print</a>
                 @if($exam->questions->where('question_type', 'file_upload')->count() > 0)
-                    <a href="{{ route('admin.grade-submissions', $exam->id) }}" class="btn btn-primary" style="background:var(--color-warning); border-color:var(--color-warning); color:#fff;"><i class="fas fa-edit"></i> Grade Files</a>
+                    <a href="{{ route('admin.grade-submissions', $exam->id) }}" class="btn btn-primary" style="background:var(--color-warning); border-color:var(--color-warning); color:#fff;"><i class="fas fa-edit"></i> Grade Writing</a>
                 @endif
             @endif
         </div>
@@ -521,7 +521,7 @@
                                 @if($ans->isFileUpload())
                                     <div style="margin-bottom:0.25rem;"><strong>File:</strong> {{ $ans->original_filename ?? 'Submission' }}</div>
                                     @if($ans->is_graded)
-                                        <div><strong>Score:</strong> {{ $ans->manual_score }}/100</div>
+                                        <div><strong>Score:</strong> {{ number_format((float)$ans->manual_score, 2) }}/{{ number_format((float)($ans->question->marks ?? 1), 2) }}</div>
                                     @endif
                                 @elseif($ans->answer)
                                     <div style="margin-bottom:0.25rem;">

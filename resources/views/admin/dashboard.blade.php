@@ -342,6 +342,11 @@
                         <a href="{{ route('admin.exam-results', $exam->id) }}" class="action-btn action-btn--success">
                             <i class="fas fa-chart-bar"></i> Results
                         </a>
+                        @if($exam->questions->where('question_type', 'file_upload')->count() > 0)
+                        <a href="{{ route('admin.grade-submissions', $exam->id) }}" class="action-btn action-btn--neutral">
+                            <i class="fas fa-edit"></i> Grade
+                        </a>
+                        @endif
                         <a href="{{ route('admin.edit-exam', $exam->id) }}" class="action-btn action-btn--neutral">
                             <i class="fas fa-pen"></i> Edit
                         </a>

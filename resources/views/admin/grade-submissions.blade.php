@@ -355,8 +355,8 @@
     @else
         <div style="text-align:center; padding:4rem 1.5rem; background:var(--surface); border:1px dashed var(--border-strong); border-radius:var(--radius-xl);">
             <i class="fas fa-folder-open" style="font-size:3rem; color:var(--border-strong); margin-bottom:1rem;"></i>
-            <h2 style="font-size:1.5rem; font-weight:700; color:var(--text); margin:0 0 0.5rem;">No File Submissions</h2>
-            <p style="font-size:0.9375rem; color:var(--text-muted); margin:0 0 1.5rem;">No students have submitted files for this exam yet.</p>
+            <h2 style="font-size:1.5rem; font-weight:700; color:var(--text); margin:0 0 0.5rem;">No submissions to grade</h2>
+            <p style="font-size:0.9375rem; color:var(--text-muted); margin:0 0 1.5rem;">No students have sat this exam yet, or nothing matches the ungraded filter.</p>
             <a href="{{ route('admin.exam-results', $exam->id) }}" class="btn btn-primary">
                 &larr; Back to Results
             </a>
