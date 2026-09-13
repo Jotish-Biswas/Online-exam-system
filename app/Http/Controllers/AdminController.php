@@ -891,8 +891,8 @@ class AdminController extends Controller
                     // Handle file upload questions
                     $this->setSafeStringValue($detailSheet, 'F' . $detailRow, 'File Uploaded');
                     $this->setSafeStringValue($detailSheet, 'G' . $detailRow, 'Manual Grading Required');
-                    $this->setSafeStringValue($detailSheet, 'H' . $detailRow, $studentAnswer->is_graded ? 
-                        ($studentAnswer->is_correct ? 'Passed' : 'Failed') : 'Pending');
+                    $this->setSafeStringValue($detailSheet, 'H' . $detailRow, $studentAnswer->is_graded ?
+                        ((float)$studentAnswer->manual_score >= (float)($question->marks ?? 1) ? 'Full marks' : 'Graded') : 'Pending');
                     
                     // File submission details
                     if ($studentAnswer->file_path) {
@@ -906,10 +906,10 @@ class AdminController extends Controller
                     
                     $this->setSafeStringValue($detailSheet, 'K' . $detailRow, 
                         $studentAnswer->is_graded ? 'Graded' : 'Pending');
-                    $this->setSafeStringValue($detailSheet, 'L' . $detailRow, 
-                        $studentAnswer->graded_score !== null ? $studentAnswer->graded_score : '');
-                    $this->setSafeStringValue($detailSheet, 'M' . $detailRow, 
-                        $studentAnswer->grading_notes ?? '');
+                    $this->setSafeStringValue($detailSheet, 'L' . $detailRow,
+                        $studentAnswer->is_graded ? $studentAnswer->manual_score : '');
+                    $this->setSafeStringValue($detailSheet, 'M' . $detailRow,
+                        $studentAnswer->admin_feedback ?? '');
                 } else {
                     // Handle MCQ questions
                     $correctAnswer = $question->answers->where('is_correct', true)->first();
@@ -918,8 +918,8 @@ class AdminController extends Controller
                         $studentAnswer->answer ? $studentAnswer->answer->answer_text : 'No answer');
                     $this->setSafeStringValue($detailSheet, 'G' . $detailRow, 
                         $correctAnswer ? $correctAnswer->answer_text : 'N/A');
-                    $this->setSafeStringValue($detailSheet, 'H' . $detailRow, 
-                        $studentAnswer->is_correct ? 'Correct' : 'Incorrect');
+                        $this->setSafeStringValue($detailSheet, 'H' . $detailRow, 
+                        ($studentAnswer->answer && $studentAnswer->answer->is_correct) ? 'Correct' : 'Incorrect');
                     
                     // Empty file-related columns for MCQ
                     $this->setSafeStringValue($detailSheet, 'I' . $detailRow, '');

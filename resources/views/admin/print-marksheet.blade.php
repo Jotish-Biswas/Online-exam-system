@@ -167,6 +167,7 @@
             @php
                 $sa = $examResult->studentAnswers->where('question_id', $question->id)->first();
                 $qMarks = (float)($question->marks ?? 1.0);
+                $answered = $sa !== null;
                 if ($question->question_type === 'file_upload') {
                     $isCorrect = $sa && $sa->is_graded && (float)$sa->manual_score >= $qMarks;
                     $earnedMarks = ($sa && $sa->is_graded) ? min($qMarks, max(0, (float)$sa->manual_score)) : 0;
@@ -187,6 +188,8 @@
                 <td>
                     @if(!$answered)
                         <em style="color:#94a3b8;">Skipped</em>
+                    @elseif($sa && $sa->file_path)
+                        {{ Str::limit($sa->original_filename ?? 'File submitted', 40) }}
                     @elseif($sa && $sa->answer)
                         {{ Str::limit($sa->answer->answer_text, 40) }}
                     @else
@@ -196,6 +199,10 @@
                 <td>
                     @if(!$answered)
                         <span class="badge badge-skip">Skipped</span>
+                    @elseif($question->question_type === 'file_upload' && $sa && $sa->is_graded)
+                        <span class="badge badge-correct">Graded</span>
+                    @elseif($question->question_type === 'file_upload')
+                        <span class="badge badge-skip">Pending</span>
                     @elseif($isCorrect)
                         <span class="badge badge-correct">✓ Correct</span>
                     @else

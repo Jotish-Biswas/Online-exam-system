@@ -162,7 +162,7 @@
                     sort($correctAnswerIds);
                     $isCorrect = $selectedAnswerIds === $correctAnswerIds;
                 } else {
-                    $isCorrect = $studentAnswer && $studentAnswer->is_correct;
+                    $isCorrect = $studentAnswer && $studentAnswer->answer && $studentAnswer->answer->is_correct;
                 }
 
                 $isGraded  = $studentAnswer && $studentAnswer->is_graded;
@@ -213,11 +213,11 @@
                                     
                                     @if($isGraded)
                                         <div style="display:inline-flex; align-items:center; gap:0.5rem; background:var(--color-accent-surface); color:var(--color-accent); padding:0.4rem 0.75rem; border-radius:var(--radius-xs); font-size:0.8125rem; font-weight:600;">
-                                            Score: {{ $studentAnswer->graded_score }} / {{ $qMarks }}
+                                            Score: {{ number_format((float)$studentAnswer->manual_score, 2) }} / {{ $qMarks }}
                                         </div>
-                                        @if($studentAnswer->grading_notes)
+                                        @if($studentAnswer->admin_feedback)
                                             <div style="margin-top:0.75rem; font-size:0.875rem; color:var(--text-secondary); border-left:2px solid var(--border-strong); padding-left:0.75rem;">
-                                                <strong>Feedback:</strong> {{ $studentAnswer->grading_notes }}
+                                                <strong>Feedback:</strong> {{ $studentAnswer->admin_feedback }}
                                             </div>
                                         @endif
                                     @else
