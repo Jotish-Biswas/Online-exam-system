@@ -259,7 +259,7 @@
                                 <input type="radio" class="type-radio" name="question_type" id="file_upload" value="file_upload" {{ old('question_type') == 'file_upload' ? 'checked' : '' }}>
                                 <div class="type-card">
                                     <div class="type-card__icon"><i class="fas fa-cloud-upload-alt"></i></div>
-                                    <div class="type-card__label">File Upload</div>
+                                    <div class="type-card__label">Writing / File</div>
                                 </div>
                             </label>
                         </div>
@@ -318,10 +318,11 @@
 
                         <div style="display:grid; grid-template-columns:1fr 2fr; gap:1.25rem; margin-bottom:1.5rem;">
                             <div class="field mb-0">
-                                <label class="field-label" for="marks">Marks / Points</label>
+                                <label class="field-label" for="marks">Marks for this question</label>
                                 <input class="field-input {{ $errors->has('marks') ? 'is-error' : '' }}" 
                                        type="number" step="0.25" min="0.25" max="100" 
                                        id="marks" name="marks" value="{{ old('marks', '1.00') }}" required>
+                                <p class="field-hint">Writing questions can carry any marks you set (e.g. 10, 15, 20).</p>
                                 @error('marks') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
                             <div class="field mb-0">
@@ -481,6 +482,10 @@
             mcqContainer.style.display = 'none';
             fileContainer.style.display = 'block';
             document.querySelectorAll('.answer-text-input').forEach(i => i.removeAttribute('required'));
+            const marks = document.getElementById('marks');
+            if (marks && (marks.value === '1' || marks.value === '1.00')) {
+                marks.value = '10.00';
+            }
         } else {
             mcqContainer.style.display = 'block';
             fileContainer.style.display = 'none';
@@ -552,7 +557,7 @@
 
     // Delete Modal
     function openDeleteModal(id) {
-        document.getElementById('deleteQForm').action = `/admin/question/${id}`;
+        document.getElementById('deleteQForm').action = "{{ route('admin.delete-question', ['question' => '__QUESTION_ID__']) }}".replace('__QUESTION_ID__', id);
         document.getElementById('deleteQModal').classList.add('is-active');
     }
     function closeDeleteModal() {

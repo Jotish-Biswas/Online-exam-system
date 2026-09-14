@@ -4,10 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Models\Exam;
 use App\Models\ExamResult;
+use App\Models\AiExplanation;
+use App\Models\Question;
+use App\Services\AiExplanationService;
 use App\Models\StudentAnswer;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use App\Models\User;
 
 class StudentController extends Controller
 {
@@ -18,6 +26,37 @@ class StudentController extends Controller
 
     public function authenticate(Request $request)
     {
+        if ($request->filled('exam_id')) {
+            return $this->authenticateLegacyExam($request);
+        }
+
+        $request->validate([
+            'username' => 'required|string',
+            'password' => 'required|string',
+        ]);
+
+        $credentials = [
+            'username' => $request->username,
+            'password' => $request->password,
+            'role' => 'student',
+        ];
+
+        if (!Auth::attempt($credentials, $request->boolean('remember'))) {
+            return back()->withErrors(['username' => 'Invalid student ID or password.'])->withInput($request->only('username'));
+        }
+
+        $request->session()->regenerate();
+        $student = Auth::user();
+        session([
+            'student_id' => $student->username,
+            'index_no' => $student->index_no ?: $student->username,
+        ]);
+
+        return redirect()->route('student.dashboard');
+    }
+
+    private function authenticateLegacyExam(Request $request)
+    {
         $request->validate([
             'exam_id' => 'required|string',
             'student_id' => 'required|string',
@@ -25,41 +64,15 @@ class StudentController extends Controller
         ]);
 
         $exam = Exam::where('exam_id', $request->exam_id)->first();
+        if (!$exam) return back()->withErrors(['exam_id' => 'Invalid Exam ID']);
+        if (!$exam->is_active) return back()->withErrors(['exam_id' => 'This exam is currently not active']);
+        if ($exam->start_time && now()->lt($exam->start_time)) return back()->withErrors(['exam_id' => 'This exam is scheduled to open on ' . $exam->start_time->format('M d, Y h:i A') . '. Please check back then.']);
 
-        if (!$exam) {
-            return back()->withErrors(['exam_id' => 'Invalid Exam ID']);
-        }
-
-        if (!$exam->is_active) {
-            return back()->withErrors(['exam_id' => 'This exam is currently not active']);
-        }
-
-        // Check scheduled window (start_time & end_time)
-        if ($exam->start_time && now()->lt($exam->start_time)) {
-            return back()->withErrors(['exam_id' => 'This exam is scheduled to open on ' . $exam->start_time->format('M d, Y h:i A') . '. Please check back then.']);
-        }
-        if ($exam->end_time && now()->gt($exam->end_time)) {
-            return back()->withErrors(['exam_id' => 'This exam closed on ' . $exam->end_time->format('M d, Y h:i A') . '. Submissions are no longer accepted.']);
-        }
-
-        // Check if the student has already taken this exam (only by student_id)
-        $existingResult = ExamResult::where('exam_id', $exam->id)
-            ->where('student_id', $request->student_id)
-            ->first();
-
-        if ($existingResult) {
-            return back()->with('error', 'You have already completed this exam.');
-        }
-
-        // Prevent concurrent logins for the same student on the same exam using atomic cache add
         $cacheKey = 'student-login-' . $exam->id . '-' . $request->student_id;
-        // Cache::add returns false if the key already exists, true if added
-        $locked = Cache::add($cacheKey, true, now()->addMinutes(120)); // Lock for 2 hours
-        if (!$locked) {
+        if (!Cache::add($cacheKey, true, now()->addMinutes(120))) {
             return back()->with('error', 'This student ID is already logged in elsewhere for this exam.');
         }
 
-        // Store student info and exam start time in session
         session([
             'student_exam_id' => $exam->id,
             'student_id' => $request->student_id,
@@ -70,13 +83,144 @@ class StudentController extends Controller
         return redirect()->route('student.exam-preview', $exam->id);
     }
 
+    public function dashboard()
+    {
+        $student = Auth::user();
+        $completedExamIds = ExamResult::where('student_id', $student->username)->pluck('exam_id');
+        $studentGroup = $student->student_group;
+        $studentAcademicGroup = $studentGroup
+            ? \App\Models\AcademicGroup::where(function ($query) use ($studentGroup) {
+                $query->where('slug', \Illuminate\Support\Str::slug($studentGroup))
+                    ->orWhere('name', $studentGroup);
+            })->first()
+            : null;
+        $available = Exam::with(['academicGroup', 'academicSubject', 'chapters'])
+            ->withCount('questions')
+            ->has('questions')
+            ->where(function ($query) {
+                $query->whereNull('start_time')->orWhere('start_time', '<=', now());
+            })
+            ->where('is_active', true)
+            ->where(function ($query) use ($studentAcademicGroup) {
+                $query->where('creation_mode', 'manual');
+                if ($studentAcademicGroup) {
+                    $query->orWhere('academic_group_id', $studentAcademicGroup->id);
+                } else {
+                    $query->orWhere('creation_mode', 'structured');
+                }
+            })
+            ->get();
+        $runningExams = $available->filter(fn ($exam) => $exam->isOpenNow());
+        $structuredGroups = $studentGroup
+            ? \App\Models\AcademicGroup::with([
+                'subjects.chapters.exams' => fn ($query) => $query
+                    ->withCount('questions')
+                    ->has('questions')
+                    ->where('is_active', true),
+            ])->where(function ($query) use ($studentGroup) {
+                $query->where('slug', \Illuminate\Support\Str::slug($studentGroup))
+                    ->orWhere('name', $studentGroup);
+            })->get()
+            : \App\Models\AcademicGroup::with([
+                'subjects.chapters.exams' => fn ($query) => $query
+                    ->withCount('questions')
+                    ->has('questions')
+                    ->where('is_active', true),
+            ])->orderBy('name')->get();
+        $manualExams = $available->where('creation_mode', 'manual')->values();
+        $pastExams = Exam::withCount('questions')
+            ->whereIn('id', $completedExamIds)
+            ->latest('updated_at')->get();
+        $results = ExamResult::with('exam')
+            ->where('student_id', $student->username)
+            ->latest('submitted_at')
+            ->get()
+            ->unique('exam_id')
+            ->values();
+
+        return view('student.dashboard', compact('student', 'runningExams', 'structuredGroups', 'manualExams', 'pastExams', 'results'));
+    }
+
+    public function profile()
+    {
+        return view('student.profile', ['student' => Auth::user()]);
+    }
+
+    public function beginExam($examId)
+    {
+        $exam = Exam::find($examId);
+        if (!$exam) {
+            return redirect()->route('student.dashboard')
+                ->with('error', 'This exam is no longer available because it was deleted by the teacher.');
+        }
+        $student = Auth::user();
+
+        if (!$exam->canAttemptNow()) {
+            return back()->with('error', 'This exam is not currently available.');
+        }
+
+        $cacheKey = 'student-session-v2-' . $exam->id . '-' . $student->username;
+        $sessionId = session()->getId();
+        $existingSessionId = Cache::get($cacheKey);
+        if ($existingSessionId && $existingSessionId !== $sessionId) {
+            return back()->with('error', 'This exam is already open in another session.');
+        }
+        Cache::put($cacheKey, $sessionId, now()->addMinutes(120));
+
+        session([
+            'student_exam_id' => $exam->id,
+            'student_id' => $student->username,
+            'index_no' => $student->index_no ?: $student->username,
+            'exam_started_at' => now()->timestamp,
+        ]);
+
+        return redirect()->route('student.exam-preview', $exam->id);
+    }
+
+    public function historyResult($examResultId)
+    {
+        $examResult = ExamResult::with('exam')->find($examResultId);
+        if (!$examResult || !$examResult->exam) {
+            return redirect()->route('student.dashboard')
+                ->with('error', 'This exam and its result are no longer available because the teacher deleted the exam.');
+        }
+
+        abort_unless($examResult->student_id === Auth::user()->username, 403);
+
+        $latestResult = ExamResult::where('exam_id', $examResult->exam_id)
+            ->where('student_id', $examResult->student_id)
+            ->latest('submitted_at')
+            ->first();
+
+        if ($latestResult && $latestResult->id !== $examResult->id) {
+            return redirect()->route('student.history-result', $latestResult->id);
+        }
+
+        $exam = $examResult->exam()->with(['questions.answers'])->firstOrFail();
+        $examResult->load(['studentAnswers.question', 'studentAnswers.answer']);
+        $sections = $examResult->evaluateSections();
+        $hasUngradedFiles = $sections['has_writing'] && !$sections['writing_fully_graded'];
+        $fileUploadAnswers = $examResult->studentAnswers->filter(fn ($answer) => $answer->question && $answer->question->isFileUpload());
+
+        return view('student.check-results-display', compact('examResult', 'exam', 'hasUngradedFiles', 'fileUploadAnswers', 'sections'));
+    }
+
     public function examPreview($examId)
     {
+        if (Auth::check() && Auth::user()->isStudent() && !session('student_exam_id')) {
+            return redirect()->route('student.begin-exam', $examId);
+        }
+
         if (!session('student_exam_id') || session('student_exam_id') != $examId) {
             return redirect()->route('student.login');
         }
 
-        $exam = Exam::with('questions')->findOrFail($examId);
+        $exam = Exam::with('questions')->find($examId);
+        if (!$exam) {
+            session()->forget(['student_exam_id', 'exam_started_at']);
+            return redirect()->route('student.dashboard')
+                ->with('error', 'This exam is no longer available because it was deleted by the teacher.');
+        }
         $totalMarks      = $exam->questions->sum('marks') ?: $exam->questions->count();
         $totalQuestions  = $exam->questions->count();
         $hasNegative     = ($exam->negative_marking ?? 0) > 0;
@@ -94,7 +238,12 @@ class StudentController extends Controller
             return redirect()->route('student.login');
         }
 
-        $exam = Exam::with(['questions.answers'])->findOrFail($examId);
+        $exam = Exam::with(['questions.answers'])->find($examId);
+        if (!$exam) {
+            session()->forget(['student_exam_id', 'exam_started_at']);
+            return redirect()->route('student.dashboard')
+                ->with('error', 'This exam is no longer available because it was deleted by the teacher.');
+        }
 
         // Reset timer on first actual exam start (after preview)
         if (!session('exam_timer_started_' . $examId)) {
@@ -154,7 +303,12 @@ class StudentController extends Controller
             return redirect()->route('student.login');
         }
 
-        $exam = Exam::with(['questions.answers'])->findOrFail($examId);
+        $exam = Exam::with(['questions.answers'])->find($examId);
+        if (!$exam) {
+            session()->forget(['student_exam_id', 'exam_started_at']);
+            return redirect()->route('student.dashboard')
+                ->with('error', 'This exam is no longer available because it was deleted by the teacher.');
+        }
         
         // Build flexible validation rules (allow skipping questions)
         $rules = [
@@ -303,8 +457,10 @@ class StudentController extends Controller
             }
         }
 
+        $examResult->load(['studentAnswers.question']);
+
         // Clear session and login lock for this exam+student
-        $cacheKey = 'student-login-' . $exam->id . '-' . session('student_id');
+        $cacheKey = 'student-session-v2-' . $exam->id . '-' . session('student_id');
         Cache::forget($cacheKey);
 
         $keysToForget = ['student_exam_id', 'student_id', 'index_no', 'exam_started_at',
@@ -324,12 +480,14 @@ class StudentController extends Controller
         if ($studentId) {
             $examId = session('student_exam_id');
             if ($examId) {
-                $cacheKey = 'student-login-' . $examId . '-' . $studentId;
+                $cacheKey = 'student-session-v2-' . $examId . '-' . $studentId;
                 Cache::forget($cacheKey);
             }
         }
 
-        session()->forget(['student_exam_id', 'student_id', 'index_no', 'exam_started_at']);
+        Auth::logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
 
         return redirect()->route('student.login')->with('success', 'You have been successfully logged out.');
     }
@@ -344,36 +502,128 @@ class StudentController extends Controller
         $request->validate([
             'exam_id' => 'required|string',
             'student_id' => 'required|string',
-            'index_no' => 'required|string',
+            'password' => 'required|string',
         ]);
 
-        $exam = Exam::where('exam_id', $request->exam_id)->first();
+        $exam = Exam::where('exam_id', $request->exam_id)
+            ->with(['questions.answers'])
+            ->first();
 
         if (!$exam) {
             return back()->withErrors(['exam_id' => 'Invalid Exam ID']);
         }
 
+        $student = User::where('username', $request->student_id)
+            ->where('role', 'student')
+            ->first();
+
+        if (!$student || !Hash::check($request->password, $student->password)) {
+            return back()->withErrors(['student_id' => 'Invalid student ID or password.']);
+        }
+
         $examResult = ExamResult::where('exam_id', $exam->id)
             ->where('student_id', $request->student_id)
-            ->where('index_no', $request->index_no)
-            ->with(['studentAnswers.question', 'studentAnswers.answer'])
+            ->latest('submitted_at')
+            ->with(['studentAnswers.question', 'studentAnswers.answer', 'exam.questions.answers'])
             ->first();
 
         if (!$examResult) {
             return back()->withErrors(['exam_id' => 'No results found for these credentials.']);
         }
 
-        // Check if there are any file upload questions that are not graded yet
-        $fileUploadAnswers = $examResult->studentAnswers->filter(function($answer) {
-            return $answer->question->isFileUpload();
+        $sections = $examResult->evaluateSections();
+        $hasUngradedFiles = $sections['has_writing'] && !$sections['writing_fully_graded'];
+
+        $fileUploadAnswers = $examResult->studentAnswers->filter(function ($answer) {
+            return $answer->question && $answer->question->isFileUpload();
         });
 
-        $ungradedFiles = $fileUploadAnswers->filter(function($answer) {
-            return !$answer->is_graded;
-        });
+        return view('student.check-results-display', compact(
+            'examResult', 'exam', 'hasUngradedFiles', 'fileUploadAnswers', 'sections'
+        ));
+    }
 
-        $hasUngradedFiles = $ungradedFiles->isNotEmpty();
+    public function explainWithAi(
+        Request $request,
+        ExamResult $examResult,
+        Question $question,
+        AiExplanationService $aiExplanationService
+    )
+    {
+        $request->validate([
+            'exam_id' => 'required|string',
+            'student_id' => 'required|string',
+            'index_no' => 'required|string',
+        ]);
 
-        return view('student.check-results-display', compact('examResult', 'exam', 'hasUngradedFiles', 'fileUploadAnswers'));
+        abort_unless(
+            $examResult->student_id === $request->student_id
+            && $examResult->index_no === $request->index_no
+            && $examResult->exam_id === $question->exam_id
+            && $request->exam_id === optional($examResult->exam)->exam_id,
+            403
+        );
+
+        abort_if(!$question->isMCQ(), 422, 'AI explanations are available for MCQ questions only.');
+
+        $studentAnswers = $examResult->studentAnswers()
+            ->where('question_id', $question->id)
+            ->with('answer')
+            ->get();
+        $selectedAnswerIds = $studentAnswers->pluck('answer_id')->filter()->sort()->values()->all();
+        $answerFingerprint = hash('sha256', json_encode($selectedAnswerIds));
+
+        $cached = AiExplanation::where('exam_result_id', $examResult->id)
+            ->where('question_id', $question->id)
+            ->where('answer_fingerprint', $answerFingerprint)
+            ->first();
+        if ($cached) {
+            return response()->json(['explanation' => $cached->explanation, 'cached' => true]);
+        }
+
+        $rateLimitKey = 'ai-explanation:' . $examResult->id . ':' . $examResult->student_id;
+        if (RateLimiter::tooManyAttempts($rateLimitKey, 10)) {
+            return response()->json([
+                'message' => 'Too many AI requests. Please try again in a minute.',
+            ], 429);
+        }
+        RateLimiter::hit($rateLimitKey, 60);
+
+        try {
+            $studentAnswerTexts = $studentAnswers->map(fn ($studentAnswer) => [
+                'id' => $studentAnswer->answer_id,
+                'text' => $studentAnswer->answer?->answer_text,
+            ])->values()->all();
+
+            $explanation = $aiExplanationService->explain([
+                'question' => $question->question_text,
+                'question_type' => $question->question_type,
+                'options' => $question->answers->map(fn ($answer) => [
+                    'id' => $answer->id,
+                    'text' => $answer->answer_text,
+                    'is_correct' => $answer->is_correct,
+                ])->values()->all(),
+                'student_answers' => $studentAnswerTexts,
+            ]);
+
+            $saved = AiExplanation::create([
+                'exam_result_id' => $examResult->id,
+                'question_id' => $question->id,
+                'answer_fingerprint' => $answerFingerprint,
+                'explanation' => $explanation,
+            ]);
+
+            return response()->json(['explanation' => $saved->explanation, 'cached' => false]);
+        } catch (\Throwable $exception) {
+            Log::warning('AI explanation request failed', [
+                'exam_result_id' => $examResult->id,
+                'question_id' => $question->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'AI explanation is temporarily unavailable. Please try again later.',
+            ], 503);
+        }
     }
 }

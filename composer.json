@@ -1,11 +1,11 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "onuranon/onuranon-exam-portal",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "Onuranon Exam Portal for online coaching examinations.",
     "keywords": [
-        "laravel",
-        "framework"
+        "onuranon",
+        "exam-portal"
     ],
     "license": "MIT",
     "require": {

@@ -173,6 +173,46 @@
             </div>
         </div>
 
+        {{-- Exam Source --}}
+        <div class="form-section">
+            <div class="form-section__header">
+                <i class="fas fa-sitemap"></i> Exam Source
+            </div>
+            <div class="form-grid" style="margin-bottom:1.25rem;">
+                <label class="switch-field" for="creation_mode_structured">
+                    <input type="radio" class="switch-input" id="creation_mode_structured" name="creation_mode" value="structured" {{ old('creation_mode', 'structured') === 'structured' ? 'checked' : '' }}>
+                    <div><span class="switch-label">Use academic architecture</span><span class="switch-desc">Organize this exam under a group, subject and selected chapters.</span></div>
+                </label>
+                <label class="switch-field" for="creation_mode_manual">
+                    <input type="radio" class="switch-input" id="creation_mode_manual" name="creation_mode" value="manual" {{ old('creation_mode') === 'manual' ? 'checked' : '' }}>
+                    <div><span class="switch-label">Manual / random exam</span><span class="switch-desc">Skip academic grouping and build a free-form exam.</span></div>
+                </label>
+            </div>
+            <div id="architecture-fields" class="form-grid form-grid--2col">
+                <div class="field">
+                    <label class="field-label" for="academic_group_id">Academic Group</label>
+                    <select class="field-input" id="academic_group_id" name="academic_group_id">
+                        <option value="">Choose group</option>
+                        @foreach($groups as $group)
+                            <option value="{{ $group->id }}" {{ (string) old('academic_group_id') === (string) $group->id ? 'selected' : '' }}>{{ $group->name }}</option>
+                        @endforeach
+                    </select>
+                    @error('academic_group_id') <p class="field-error">{{ $message }}</p> @enderror
+                </div>
+                <div class="field">
+                    <label class="field-label" for="academic_subject_id">Subject / Paper</label>
+                    <select class="field-input" id="academic_subject_id" name="academic_subject_id"><option value="">Choose subject</option></select>
+                    @error('academic_subject_id') <p class="field-error">{{ $message }}</p> @enderror
+                </div>
+                <div class="field" style="grid-column:1/-1;">
+                    <label class="field-label" for="chapters">Chapters</label>
+                    <select class="field-input" id="chapters" name="chapters[]" multiple size="6"><option value="">Choose a subject first</option></select>
+                    <p class="field-hint">Hold Ctrl / Cmd to select multiple chapters.</p>
+                    @error('chapters') <p class="field-error">{{ $message }}</p> @enderror
+                </div>
+            </div>
+        </div>
+
         {{-- Configuration --}}
         <div class="form-section">
             <div class="form-section__header">
@@ -193,16 +233,27 @@
                     <input class="field-input {{ $errors->has('negative_marking') ? 'is-error' : '' }}" 
                            type="number" id="negative_marking" name="negative_marking" 
                            value="{{ old('negative_marking', '0.00') }}" step="0.05" min="0" max="10">
-                    <p class="field-hint">0.00 for no penalty.</p>
+                    <p class="field-hint">0.00 for no penalty (MCQ only).</p>
                     @error('negative_marking') <p class="field-error">{{ $message }}</p> @enderror
                 </div>
+            </div>
 
+            <div class="form-grid form-grid--2col" style="margin-top:1.25rem;">
                 <div class="field">
-                    <label class="field-label" for="pass_percentage">Pass %</label>
-                    <input class="field-input {{ $errors->has('pass_percentage') ? 'is-error' : '' }}" 
-                           type="number" id="pass_percentage" name="pass_percentage" 
-                           value="{{ old('pass_percentage', 40) }}" min="1" max="100">
-                    @error('pass_percentage') <p class="field-error">{{ $message }}</p> @enderror
+                    <label class="field-label" for="mcq_pass_percentage">MCQ pass %</label>
+                    <input class="field-input {{ $errors->has('mcq_pass_percentage') ? 'is-error' : '' }}"
+                           type="number" id="mcq_pass_percentage" name="mcq_pass_percentage"
+                           value="{{ old('mcq_pass_percentage', 40) }}" min="1" max="100">
+                    <p class="field-hint">Students must pass MCQ on its own.</p>
+                    @error('mcq_pass_percentage') <p class="field-error">{{ $message }}</p> @enderror
+                </div>
+                <div class="field">
+                    <label class="field-label" for="writing_pass_percentage">Writing pass %</label>
+                    <input class="field-input {{ $errors->has('writing_pass_percentage') ? 'is-error' : '' }}"
+                           type="number" id="writing_pass_percentage" name="writing_pass_percentage"
+                           value="{{ old('writing_pass_percentage', 40) }}" min="1" max="100">
+                    <p class="field-hint">Writing is graded separately. Overall pass needs both.</p>
+                    @error('writing_pass_percentage') <p class="field-error">{{ $message }}</p> @enderror
                 </div>
             </div>
         </div>
@@ -268,4 +319,50 @@
     </form>
 
 </div>
+@endsection
+
+@section('scripts')
+<script>
+(() => {
+    const groups = @json($groups);
+    const groupSelect = document.getElementById('academic_group_id');
+    const subjectSelect = document.getElementById('academic_subject_id');
+    const chapterSelect = document.getElementById('chapters');
+    const fields = document.getElementById('architecture-fields');
+    const oldSubject = @json(old('academic_subject_id'));
+    const oldChapters = @json(old('chapters', []));
+
+    function refreshSubjects() {
+        const group = groups.find(item => String(item.id) === groupSelect.value);
+        subjectSelect.innerHTML = '<option value="">Choose subject</option>';
+        (group?.subjects || []).forEach(subject => subjectSelect.add(
+            new Option(subject.name, subject.id, false, String(subject.id) === String(oldSubject))
+        ));
+        refreshChapters();
+    }
+    function refreshChapters() {
+        const group = groups.find(item => String(item.id) === groupSelect.value);
+        const subject = (group?.subjects || []).find(item => String(item.id) === subjectSelect.value);
+        chapterSelect.innerHTML = '';
+        if (!subject) {
+            chapterSelect.add(new Option('Choose a subject first', ''));
+            return;
+        }
+        subject.chapters.forEach(chapter => chapterSelect.add(new Option(
+            `${chapter.sort_order + 1}. ${chapter.title}`, chapter.id, false,
+            oldChapters.map(String).includes(String(chapter.id))
+        )));
+    }
+    function toggleArchitecture() {
+        const structured = document.querySelector('input[name="creation_mode"]:checked').value === 'structured';
+        fields.hidden = !structured;
+        groupSelect.required = subjectSelect.required = chapterSelect.required = structured;
+    }
+    groupSelect.addEventListener('change', refreshSubjects);
+    subjectSelect.addEventListener('change', refreshChapters);
+    document.querySelectorAll('input[name="creation_mode"]').forEach(input => input.addEventListener('change', toggleArchitecture));
+    refreshSubjects();
+    toggleArchitecture();
+})();
+</script>
 @endsection

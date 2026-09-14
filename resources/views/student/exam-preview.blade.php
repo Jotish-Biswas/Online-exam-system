@@ -176,9 +176,15 @@
         </div>
         @endif
         <div class="stat-card">
-            <div class="stat-card__num">{{ $exam->pass_percentage ?? 40 }}%</div>
-            <div class="stat-card__label">Pass Mark</div>
+            <div class="stat-card__num">{{ $exam->mcqPassPercentage() }}%</div>
+            <div class="stat-card__label">MCQ pass</div>
         </div>
+        @if($hasFileUpload)
+        <div class="stat-card">
+            <div class="stat-card__num">{{ $exam->writingPassPercentage() }}%</div>
+            <div class="stat-card__label">Writing pass</div>
+        </div>
+        @endif
         @if($hasNegative)
         <div class="stat-card" style="border-color: rgba(183,28,28,.2); background: var(--color-danger-bg);">
             <div class="stat-card__num" style="color: var(--color-danger);">−{{ $exam->negative_marking }}</div>
@@ -211,11 +217,18 @@
         </div>
         @endif
 
+        <div class="instruction-item">
+            <div class="instruction-icon icon-info"><i class="fas fa-balance-scale"></i></div>
+            <p class="instruction-text">
+                <strong>Separate pass marks:</strong> You must pass MCQ ({{ $exam->mcqPassPercentage() }}%)@if($hasFileUpload) and writing ({{ $exam->writingPassPercentage() }}%) separately. Failing one section means the exam is not passed.@endif
+            </p>
+        </div>
+
         @if($hasFileUpload)
         <div class="instruction-item">
             <div class="instruction-icon icon-info"><i class="fas fa-paperclip"></i></div>
             <p class="instruction-text">
-                <strong>File Uploads:</strong> You will need to upload files for certain questions. Pay attention to the allowed file format and max size limits.
+                <strong>Writing / file questions:</strong> Each writing item has its own marks. Upload your file before time ends. MCQ marks show immediately after submit; writing marks come after the teacher grades.
             </p>
         </div>
         @endif

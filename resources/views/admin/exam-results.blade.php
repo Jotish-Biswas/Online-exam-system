@@ -66,6 +66,25 @@
         font-size: 0.8125rem;
         color: var(--text-muted);
     }
+        .result-schedule {
+            display: flex;
+            align-items: center;
+            gap: .55rem;
+            flex-wrap: wrap;
+            margin-top: .9rem;
+            padding: .7rem .85rem;
+            background: var(--surface-alt);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-secondary);
+            font-size: .82rem;
+        }
+        .result-schedule strong { color: var(--text); }
+        .student-cell { display: flex; flex-direction: column; gap: .2rem; }
+        .student-cell small { color: var(--text-muted); font-size: .75rem; }
+        .score-stack { display: flex; flex-direction: column; gap: .25rem; }
+        .score-stack strong { color: var(--text); }
+        .score-stack small { color: var(--text-muted); }
 
     /* Charts Row */
     .charts-grid {
@@ -213,18 +232,35 @@
 @section('content')
 <div class="results-root page-fade-in">
 
+    @php($scheduleState = $exam->scheduleState())
+
     {{-- Header --}}
     <div class="r-header">
         <div>
             <h1 class="r-title">{{ $exam->exam_name }}</h1>
             <div class="r-meta">
                 <span class="badge badge-neutral">ID: {{ $exam->exam_id }}</span>
-                @if($exam->pass_percentage)
-                    <span class="badge badge-info">Pass: {{ $exam->pass_percentage }}%</span>
+                @if($exam->questions->where('question_type', 'file_upload')->count() > 0)
+                    <span class="badge badge-info">MCQ {{ $exam->mcqPassPercentage() }}% · Writing {{ $exam->writingPassPercentage() }}%</span>
+                @elseif($exam->pass_percentage)
+                    <span class="badge badge-info">MCQ pass: {{ $exam->mcqPassPercentage() }}%</span>
                 @endif
                 @if($exam->negative_marking > 0)
                     <span class="badge badge-warning">−{{ $exam->negative_marking }} penalty</span>
                 @endif
+                    <div class="result-schedule">
+                        <span class="schedule-dot schedule-dot--{{ $scheduleState }}"></span>
+                        <strong>{{ ucfirst($scheduleState) }}</strong>
+                        @if($scheduleState === 'upcoming')
+                            <span>Starts {{ $exam->start_time->format('M d, Y · h:i A') }}</span>
+                        @elseif($scheduleState === 'running' && $exam->end_time)
+                            <span>Running until {{ $exam->end_time->format('M d, Y · h:i A') }}</span>
+                        @elseif($scheduleState === 'ended')
+                            <span>Ended {{ $exam->end_time->format('M d, Y · h:i A') }}. Late attempts are not ranked.</span>
+                        @else
+                            <span>No scheduled window. Attempts are kept, but no rank is generated.</span>
+                        @endif
+                    </div>
             </div>
         </div>
         <div class="r-summary-block">
@@ -257,7 +293,7 @@
             <div class="chart-card">
                 <div class="chart-card__header">
                     <h3 class="chart-card__title"><i class="fas fa-chart-pie"></i> Pass/Fail Ratio</h3>
-                    <p class="chart-card__desc">Based on {{ $exam->pass_percentage ?? 40 }}% pass mark</p>
+                    <p class="chart-card__desc">Overall pass needs MCQ {{ $exam->mcqPassPercentage() }}% and writing {{ $exam->writingPassPercentage() }}% (pending scripts excluded)</p>
                 </div>
                 <div class="chart-wrapper" style="display:flex; justify-content:center; align-items:center; flex-direction:column;">
                     <div style="height:160px; width:160px; position:relative;">
@@ -292,8 +328,8 @@
                 <div class="stat-pill__lbl">Passed</div>
             </div>
             <div class="stat-pill">
-                <div class="stat-pill__val" style="color:var(--color-danger);">{{ $failCount }}</div>
-                <div class="stat-pill__lbl">Failed</div>
+                <div class="stat-pill__val" style="color:var(--color-warning);">{{ $pendingCount ?? 0 }}</div>
+                <div class="stat-pill__lbl">Pending writing</div>
             </div>
             <div class="stat-pill">
                 <div class="stat-pill__val" style="color:var(--text);">{{ number_format($averageScore, 1) }}</div>
@@ -324,6 +360,46 @@
         </div>
     </div>
 
+    {{-- Ranking --}}
+    <div class="table-card" style="margin-bottom:1.5rem;">
+        <div class="table-card__header">
+            <div>
+                <h3 class="table-card__title">Scheduled Exam Ranking</h3>
+                <p style="margin:.25rem 0 0; font-size:.8125rem; color:var(--text-muted);">{{ $scheduledSubmissionCount }} on-time submission(s). Latest fully graded attempt per student is ranked.</p>
+            </div>
+            <span style="font-size:0.8125rem; color:var(--text-muted);">{{ $rankedResults->count() }} ranked</span>
+        </div>
+        @if($rankedResults->isNotEmpty())
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Student</th>
+                            <th>Performance</th>
+                            <th>Result</th>
+                            <th>Submitted</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($rankedResults as $rankedResult)
+                            <?php $rankSections = $rankedResult->evaluateSections(); ?>
+                            <tr>
+                                <td><strong>#{{ $rankedResult->rank }}</strong></td>
+                                <td><div class="student-cell"><strong>{{ $rankedResult->student_id }}</strong><small>Index {{ $rankedResult->index_no }}</small></div></td>
+                                <td><div class="score-stack"><strong>{{ number_format($rankSections['obtained'], 2) }} / {{ number_format($rankSections['total'], 2) }}</strong><small>{{ $rankSections['correct_count'] }} correct · {{ max(0, $rankSections['mcq_count'] + $rankSections['writing_count'] - $rankSections['correct_count']) }} incorrect / skipped</small></div></td>
+                                <td><span class="badge {{ $rankSections['overall_passed'] ? 'badge-success' : 'badge-danger' }}">{{ $rankSections['overall_passed'] ? 'Passed' : 'Failed' }}</span><small style="display:block; margin-top:.25rem; color:var(--text-muted);">{{ $rankSections['overall_percentage'] }}%</small></td>
+                                <td style="color:var(--text-secondary); font-size:.8125rem;">{{ $rankedResult->submitted_at->format('M d, Y H:i') }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @else
+            <div class="empty-state" style="margin:1rem;">No eligible scheduled-time results are available for ranking yet.</div>
+        @endif
+    </div>
+
     {{-- Table --}}
     @if($results->count() > 0)
         <div class="table-card">
@@ -337,11 +413,13 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Student ID</th>
-                            <th>Index No</th>
-                            <th>Score</th>
-                            <th>Correct / Total</th>
-                            <th>Status</th>
+                            <th>Student</th>
+                            <th>Attempt</th>
+                            <th>Correctness</th>
+                            <th>MCQ</th>
+                            <th>Writing</th>
+                            <th>Overall</th>
+                            <th>Schedule</th>
                             <th>Time Taken</th>
                             <th>Integrity</th>
                             <th>Submitted</th>
@@ -350,26 +428,50 @@
                     </thead>
                     <tbody>
                         @foreach($results as $result)
-                            @php
-                                $tmx = $result->total_marks > 0 ? $result->total_marks : $result->total_questions;
-                                $rPct = $tmx > 0 ? ($result->score / $tmx) * 100 : 0;
-                                $rPassed = $rPct >= ($exam->pass_percentage ?? 40);
-                            @endphp
+                            <?php
+                                $s = $result->evaluateSections();
+                            ?>
                             <tr>
-                                <td><strong>{{ $result->student_id }}</strong></td>
-                                <td>{{ $result->index_no }}</td>
+                                @php($rank = $rankByResultId->get($result->id))
+                                <td><div class="student-cell"><strong>{{ $result->student_id }}</strong><small>Index {{ $result->index_no }}</small></div></td>
+                                <td><div class="score-stack"><strong>#{{ $result->id }}</strong><small>{{ $rank ? 'Rank '.$rank : ($result->isRankEligible() ? 'On-time, pending rank' : 'Not rank eligible') }}</small></div></td>
+                                <td><div class="score-stack"><strong>{{ $s['correct_count'] }} / {{ $s['mcq_count'] + $s['writing_count'] }}</strong><small>{{ max(0, $s['mcq_count'] + $s['writing_count'] - $s['correct_count']) }} wrong / skipped</small></div></td>
                                 <td>
-                                    <span class="badge badge-neutral">
-                                        {{ number_format((float)$result->score, 2) }}
-                                        @if($tmx > 0)/ {{ number_format((float)$tmx, 2) }}@endif
-                                    </span>
+                                    @if($s['has_mcq'])
+                                        {{ number_format($s['mcq_obtained'], 1) }}/{{ number_format($s['mcq_total'], 1) }}
+                                        <span class="badge {{ $s['mcq_passed'] ? 'badge-success' : 'badge-danger' }}">{{ $s['mcq_passed'] ? 'Pass' : 'Fail' }}</span>
+                                    @else
+                                        <span style="color:var(--text-muted);">—</span>
+                                    @endif
                                 </td>
-                                <td>{{ $result->correct_answers }} / {{ $result->total_questions }}</td>
                                 <td>
-                                    <span class="badge {{ $rPassed ? 'badge-success' : 'badge-danger' }}" style="margin-right:0.2rem;">
-                                        {{ $rPassed ? 'Passed' : 'Failed' }}
-                                    </span>
-                                    <span style="font-size:0.75rem; color:var(--text-muted);">{{ number_format($rPct, 0) }}%</span>
+                                    @if(!$s['has_writing'])
+                                        <span style="color:var(--text-muted);">—</span>
+                                    @elseif(!$s['writing_fully_graded'])
+                                        <span class="badge badge-warning">Pending {{ $s['writing_graded'] }}/{{ $s['writing_count'] }}</span>
+                                    @else
+                                        {{ number_format($s['writing_obtained'], 1) }}/{{ number_format($s['writing_total'], 1) }}
+                                        <span class="badge {{ $s['writing_passed'] ? 'badge-success' : 'badge-danger' }}">{{ $s['writing_passed'] ? 'Pass' : 'Fail' }}</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if(!$s['overall_ready'])
+                                        <span class="badge badge-neutral">Waiting</span>
+                                    @else
+                                        <span class="badge {{ $s['overall_passed'] ? 'badge-success' : 'badge-danger' }}">
+                                            {{ $s['overall_passed'] ? 'Passed' : 'Failed' }}
+                                        </span>
+                                        <span style="font-size:0.75rem; color:var(--text-muted);">{{ $s['overall_percentage'] }}%</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if($result->isRankEligible())
+                                        <span class="badge badge-success">On time</span>
+                                    @elseif($exam->scheduleState() === 'unscheduled')
+                                        <span class="badge badge-neutral">No rank</span>
+                                    @else
+                                        <span class="badge badge-warning">Late · No rank</span>
+                                    @endif
                                 </td>
                                 <td>
                                     @if($result->time_taken_seconds)
@@ -395,6 +497,11 @@
                                         <button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem;" onclick="openDetailModal('{{ $result->id }}')">
                                             <i class="fas fa-eye"></i> Details
                                         </button>
+                                        @if($exam->questions->where('question_type', 'file_upload')->count() > 0)
+                                        <a href="{{ route('admin.grade-desk', [$exam->id, $result->id]) }}" class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem;">
+                                            <i class="fas fa-edit"></i> Grade
+                                        </a>
+                                        @endif
                                         <a href="{{ route('admin.print-marksheet', $result->id) }}" target="_blank" class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem;">
                                             <i class="fas fa-print"></i>
                                         </a>
@@ -460,90 +567,7 @@
 
 {{-- Detail Modals --}}
 @foreach($results as $result)
-    <div class="modal-overlay" id="detailModal-{{ $result->id }}" style="z-index:1000;">
-        <div class="modal" style="max-width:800px; max-height:90vh; display:flex; flex-direction:column;">
-            <div class="modal__header" style="background:var(--color-accent-surface);">
-                <h3 class="modal__title" style="color:var(--color-accent); display:flex; align-items:center; gap:0.5rem;">
-                    <i class="fas fa-user-circle"></i> {{ $result->student_id }} Details
-                </h3>
-                <button type="button" class="modal__close" onclick="closeDetailModal('{{ $result->id }}')"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="modal__body" style="overflow-y:auto; padding:1.5rem;">
-                @php
-                    $tmx2 = $result->total_marks > 0 ? $result->total_marks : $result->total_questions;
-                    $pct2  = $tmx2 > 0 ? round(($result->score / $tmx2) * 100, 1) : 0;
-                    $pass2 = $pct2 >= ($exam->pass_percentage ?? 40);
-                @endphp
-                
-                <div style="display:flex; flex-wrap:wrap; gap:1.5rem; margin-bottom:2rem; background:var(--surface-alt); border:1px solid var(--border); border-radius:var(--radius-lg); padding:1.5rem;">
-                    <div style="flex-shrink:0; width:90px; height:90px; border-radius:50%; background:{{ $pass2 ? 'var(--color-success)' : 'var(--color-danger)' }}; color:white; display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:0 0 0 4px {{ $pass2 ? 'var(--color-success-bg)' : 'var(--color-danger-bg)' }};">
-                        <span style="font-size:1.25rem; font-weight:800; line-height:1;">{{ $pct2 }}%</span>
-                        <span style="font-size:0.75rem; font-weight:600; text-transform:uppercase;">{{ $pass2 ? 'Pass' : 'Fail' }}</span>
-                    </div>
-                    <div style="flex:1; min-width:200px; display:grid; grid-template-columns:1fr 1fr; gap:1rem; align-items:center;">
-                        <div>
-                            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">Student ID</div>
-                            <div style="font-weight:600;">{{ $result->student_id }}</div>
-                        </div>
-                        <div>
-                            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">Index No</div>
-                            <div style="font-weight:600;">{{ $result->index_no }}</div>
-                        </div>
-                        <div>
-                            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">Score</div>
-                            <div style="font-weight:600;">{{ number_format((float)$result->score,2) }} / {{ number_format((float)$tmx2,2) }}</div>
-                        </div>
-                        <div>
-                            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">Time</div>
-                            <div style="font-weight:600;">{{ $result->time_taken_seconds ? floor($result->time_taken_seconds/60).'m '.($result->time_taken_seconds%60).'s' : 'N/A' }}</div>
-                        </div>
-                    </div>
-                </div>
-
-                <h4 style="font-size:1rem; font-weight:700; margin:0 0 1rem;">Question Breakdown</h4>
-                <div style="display:flex; flex-direction:column; gap:1rem;">
-                    @foreach($result->studentAnswers as $index => $ans)
-                        <div style="border:1px solid {{ $ans->isFileUpload() ? ($ans->is_graded ? 'var(--color-success)' : 'var(--color-warning)') : ($ans->answer && $ans->answer->is_correct ? 'var(--color-success)' : 'var(--color-danger)') }}; border-radius:var(--radius-md); padding:1rem; background:var(--surface);">
-                            <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-                                <strong style="font-size:0.875rem;">Q{{ $index + 1 }}.</strong>
-                                
-                                @if($ans->isFileUpload())
-                                    <span class="badge {{ $ans->is_graded ? 'badge-success' : 'badge-warning' }}">{{ $ans->is_graded ? 'Graded' : 'Pending' }}</span>
-                                @elseif($ans->answer)
-                                    <span class="badge {{ $ans->answer->is_correct ? 'badge-success' : 'badge-danger' }}">{{ $ans->answer->is_correct ? 'Correct' : 'Incorrect' }}</span>
-                                @else
-                                    <span class="badge badge-neutral">No Answer</span>
-                                @endif
-                            </div>
-                            <p style="font-size:0.875rem; margin:0 0 0.75rem;">{{ $ans->question->question_text }}</p>
-                            
-                            <div style="font-size:0.8125rem; background:var(--surface-alt); padding:0.75rem; border-radius:var(--radius-sm);">
-                                @if($ans->isFileUpload())
-                                    <div style="margin-bottom:0.25rem;"><strong>File:</strong> {{ $ans->original_filename ?? 'Submission' }}</div>
-                                    @if($ans->is_graded)
-                                        <div><strong>Score:</strong> {{ number_format((float)$ans->manual_score, 2) }}/{{ number_format((float)($ans->question->marks ?? 1), 2) }}</div>
-                                    @endif
-                                @elseif($ans->answer)
-                                    <div style="margin-bottom:0.25rem;">
-                                        <strong>Student:</strong> <span style="color:{{ $ans->answer->is_correct ? 'var(--color-success)' : 'var(--color-danger)' }}; font-weight:500;">{{ $ans->answer->answer_text }}</span>
-                                    </div>
-                                    @if(!$ans->answer->is_correct)
-                                        @php $corr = $ans->question->answers->where('is_correct', true)->first(); @endphp
-                                        @if($corr)
-                                            <div><strong>Correct:</strong> <span style="color:var(--color-success); font-weight:500;">{{ $corr->answer_text }}</span></div>
-                                        @endif
-                                    @endif
-                                @else
-                                    <div style="color:var(--text-muted); font-style:italic;">Left blank.</div>
-                                @endif
-                            </div>
-                        </div>
-                    @endforeach
-                </div>
-
-            </div>
-        </div>
-    </div>
+    @include('admin.result-detail-modal', ['result' => $result])
 @endforeach
 
 @endsection
@@ -586,10 +610,10 @@
             new Chart(pfCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: ['Passed', 'Failed'],
+                    labels: ['Passed', 'Failed', 'Pending writing'],
                     datasets: [{
-                        data: [{{ $passCount }}, {{ $failCount }}],
-                        backgroundColor: ['#10b981', '#ef4444'],
+                        data: [{{ $passCount }}, {{ $failCount }}, {{ $pendingCount ?? 0 }}],
+                        backgroundColor: ['#10b981', '#ef4444', '#f59e0b'],
                         borderWidth: 0,
                         hoverOffset: 4
                     }]
@@ -636,7 +660,7 @@
 <script>
     function openRetakeModal(id, studentId) {
         document.getElementById('retakeStudentId').textContent = studentId;
-        document.getElementById('retakeForm').action = `/admin/result/${id}`;
+        document.getElementById('retakeForm').action = "{{ route('admin.delete-result', ['result' => '__RESULT_ID__']) }}".replace('__RESULT_ID__', id);
         document.getElementById('retakeModal').classList.add('is-active');
     }
     function closeRetakeModal() {

@@ -23,6 +23,11 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'address',
+        'college',
+        'student_group',
+        'whatsapp',
+        'index_no',
     ];
 
     public function isAdmin(): bool
@@ -33,6 +38,11 @@ class User extends Authenticatable
     public function isTeacher(): bool
     {
         return $this->role === 'teacher';
+    }
+
+    public function isStudent(): bool
+    {
+        return $this->role === 'student';
     }
 
     public function exams()

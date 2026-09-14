@@ -35,4 +35,14 @@ return [
         ],
     ],
 
+    'gemini' => [
+        'key' => env('GEMINI_API_KEY'),
+        'model' => env('GEMINI_MODEL', 'gemini-3.5-flash-lite'),
+    ],
+
+    'ai_question_generator' => [
+        'url' => env('AI_QUESTION_GENERATOR_URL', 'http://127.0.0.1:8001'),
+        'timeout' => (int) env('AI_QUESTION_GENERATOR_TIMEOUT', 150),
+    ],
+
 ];

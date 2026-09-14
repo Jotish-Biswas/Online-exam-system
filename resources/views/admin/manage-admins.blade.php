@@ -390,7 +390,7 @@
 <script>
     function openDeleteModal(adminId, adminName) {
         document.getElementById('deleteAdminName').textContent = adminName;
-        document.getElementById('deleteForm').action = '/admin/manage-admins/' + adminId;
+        document.getElementById('deleteForm').action = "{{ route('admin.delete-admin', ['user' => '__USER_ID__']) }}".replace('__USER_ID__', adminId);
         document.getElementById('deleteModal').classList.add('is-active');
     }
 

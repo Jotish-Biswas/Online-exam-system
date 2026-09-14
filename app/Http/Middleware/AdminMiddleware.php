@@ -21,7 +21,8 @@ class AdminMiddleware
         }
 
         // If the user is a student (logged in via session), they should not access admin routes.
-        if (session()->has('student_id')) {
+        if ((!\Illuminate\Support\Facades\Auth::check() && session()->has('student_id'))
+            || (\Illuminate\Support\Facades\Auth::check() && \Illuminate\Support\Facades\Auth::user()->role === 'student')) {
             return redirect('/')->with('error', 'You do not have permission to access this page.');
         }
 

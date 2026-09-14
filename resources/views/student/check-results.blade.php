@@ -129,16 +129,15 @@
                         </div>
 
                         <div class="field">
-                            <label class="field-label" for="index_no">Index Number</label>
+                            <label class="field-label" for="password">Password</label>
                             <input 
-                                class="field-input {{ $errors->has('index_no') ? 'is-error' : '' }}" 
-                                type="text" 
-                                id="index_no" 
-                                name="index_no" 
-                                value="{{ old('index_no') }}" 
-                                placeholder="Your roll or index number"
+                                class="field-input {{ $errors->has('password') ? 'is-error' : '' }}"
+                                type="password"
+                                id="password"
+                                name="password"
+                                placeholder="Your student account password"
                                 required>
-                            @error('index_no')
+                            @error('password')
                                 <p class="field-error">
                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                                     {{ $message }}

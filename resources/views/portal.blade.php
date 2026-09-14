@@ -1,7 +1,7 @@
 @extends('layouts.shell')
 
 @section('title', 'Sign In')
-@section('meta-description', 'SITC Online Exam System — student exam access and teacher login portal.')
+@section('meta-description', config('brand.name') . ' — student exam access and teacher login portal.')
 
 @section('nav-actions')
 {{-- no extra nav items on login --}}
@@ -132,7 +132,7 @@
             <div class="portal-eyebrow__mark" aria-hidden="true">
                 <i class="fas fa-graduation-cap"></i>
             </div>
-            <h1 class="portal-eyebrow__title">SITC Exam Portal</h1>
+            <h1 class="portal-eyebrow__title">{{ config('brand.name') }}</h1>
             <p class="portal-eyebrow__sub">Welcome — select your role to continue</p>
         </div>
 
@@ -140,9 +140,7 @@
         <div class="card" style="box-shadow: var(--shadow-md);">
 
             @php
-                $showTeacher = request('role') === 'teacher'
-                    || old('username') !== null
-                    || $errors->has('username') || $errors->has('password');
+                $showTeacher = request('role') === 'teacher';
             @endphp
 
             <div class="card__body">
@@ -180,26 +178,27 @@
 
                     <div style="margin-bottom:0.25rem;">
                         <p style="font-size:0.8125rem; color:var(--text-muted); margin:0; line-height:1.5;">
-                            Enter the details your teacher provided to access the exam.
+                            Sign in with the student ID and password provided by your teacher.
                         </p>
                     </div>
 
                     <form action="{{ route('student.authenticate') }}" method="POST" novalidate>
                         @csrf
+                        <input type="hidden" name="role" value="student">
 
                         <div class="form-section">
                             <div class="field">
-                                <label class="field-label" for="exam_id">Exam ID / Access Key</label>
+                                <label class="field-label" for="student_username">Student ID</label>
                                 <input
-                                    class="field-input {{ $errors->has('exam_id') ? 'is-error' : '' }}"
+                                    class="field-input {{ $errors->has('username') ? 'is-error' : '' }}"
                                     type="text"
-                                    id="exam_id"
-                                    name="exam_id"
-                                    value="{{ old('exam_id') }}"
-                                    placeholder="e.g. PHYS-2024-A"
+                                    id="student_username"
+                                    name="username"
+                                    value="{{ old('username') }}"
+                                    placeholder="Your student ID"
                                     autocomplete="off"
                                     required>
-                                @error('exam_id')
+                                @error('username')
                                     <p class="field-error">
                                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                                         {{ $message }}
@@ -208,36 +207,16 @@
                             </div>
 
                             <div class="field">
-                                <label class="field-label" for="student_id">Student Name / ID</label>
+                                <label class="field-label" for="student_password">Password</label>
                                 <input
-                                    class="field-input {{ $errors->has('student_id') ? 'is-error' : '' }}"
-                                    type="text"
-                                    id="student_id"
-                                    name="student_id"
-                                    value="{{ old('student_id') }}"
-                                    placeholder="Your full name or student ID"
-                                    autocomplete="name"
+                                    class="field-input {{ $errors->has('password') ? 'is-error' : '' }}"
+                                    type="password"
+                                    id="student_password"
+                                    name="password"
+                                    placeholder="Your password"
+                                    autocomplete="current-password"
                                     required>
-                                @error('student_id')
-                                    <p class="field-error">
-                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                                        {{ $message }}
-                                    </p>
-                                @enderror
-                            </div>
-
-                            <div class="field">
-                                <label class="field-label" for="index_no">Roll / Index Number</label>
-                                <input
-                                    class="field-input {{ $errors->has('index_no') ? 'is-error' : '' }}"
-                                    type="text"
-                                    id="index_no"
-                                    name="index_no"
-                                    value="{{ old('index_no') }}"
-                                    placeholder="Your roll or index number"
-                                    autocomplete="off"
-                                    required>
-                                @error('index_no')
+                                @error('password')
                                     <p class="field-error">
                                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                                         {{ $message }}
@@ -247,14 +226,14 @@
 
                             <button type="submit" class="btn btn-primary btn-lg" style="width:100%; margin-top:0.25rem;">
                                 <i class="fas fa-arrow-right"></i>
-                                Enter Exam
+                                Sign In to Dashboard
                             </button>
                         </div>
                     </form>
 
                     <div class="form-footer">
                         <a href="{{ route('student.checkResultsForm') }}">
-                            <i class="fas fa-chart-bar" style="margin-right:0.3rem;"></i>Check my exam results
+                            <i class="fas fa-chart-bar" style="margin-right:0.3rem;"></i>Results are available inside your dashboard
                         </a>
                     </div>
                 </div>
@@ -273,6 +252,7 @@
 
                     <form action="{{ route('admin.authenticate') }}" method="POST" novalidate>
                         @csrf
+                        <input type="hidden" name="role" value="teacher">
 
                         <div class="form-section">
                             <div class="field">
@@ -335,7 +315,7 @@
 
         {{-- Footer note --}}
         <p style="text-align:center; font-size:0.75rem; color:var(--text-faint); margin-top:1.25rem; line-height:1.5;">
-            SITC Online Exam System &mdash; Secure &amp; Monitored
+            {{ config('brand.name') }} &mdash; Secure &amp; Monitored
         </p>
 
     </div>

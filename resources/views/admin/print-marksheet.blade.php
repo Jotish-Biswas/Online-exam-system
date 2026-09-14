@@ -68,7 +68,7 @@
 </div>
 
 <div class="institution">
-    <h2>SITC Examination System</h2>
+    <h2>{{ config('brand.name') }}</h2>
     <p>Official Result Marksheet</p>
 </div>
 
@@ -113,40 +113,41 @@
 
 {{-- Score Summary --}}
 @php
-    $tmx    = $examResult->total_marks > 0 ? $examResult->total_marks : $exam->questions->count();
-    $pct    = $tmx > 0 ? round(($examResult->score / $tmx) * 100, 1) : 0;
-    $passed = $examResult->isPassed();
+    $sections = $examResult->evaluateSections();
+    $tmx    = $sections['total'];
+    $pct    = $sections['overall_percentage'] ?? 0;
+    $passed = $sections['overall_passed'];
+    $ready  = $sections['overall_ready'];
 @endphp
 <div class="score-section">
     <div class="score-box">
-        <div class="val">{{ number_format((float)$examResult->score, 2) }}</div>
-        <div class="lbl">Marks Obtained</div>
+        <div class="val">{{ $sections['has_mcq'] ? number_format($sections['mcq_obtained'], 2) : '—' }}</div>
+        <div class="lbl">MCQ ({{ $sections['mcq_pass_mark'] }}% pass)</div>
     </div>
     <div class="score-box">
-        <div class="val">{{ number_format((float)$tmx, 2) }}</div>
-        <div class="lbl">Total Marks</div>
+        <div class="val">{{ $sections['has_writing'] ? ($ready ? number_format($sections['writing_obtained'], 2) : 'Pending') : '—' }}</div>
+        <div class="lbl">Writing ({{ $sections['writing_pass_mark'] }}% pass)</div>
     </div>
     <div class="score-box">
-        <div class="val">{{ $pct }}%</div>
+        <div class="val">{{ $ready ? number_format($sections['obtained'], 2) : '—' }}</div>
+        <div class="lbl">Overall / {{ number_format($tmx, 2) }}</div>
+    </div>
+    <div class="score-box">
+        <div class="val">{{ $ready ? $pct.'%' : '—' }}</div>
         <div class="lbl">Percentage</div>
-    </div>
-    <div class="score-box">
-        <div class="val">{{ $examResult->correct_answers }}</div>
-        <div class="lbl">Correct Answers</div>
-    </div>
-    <div class="score-box">
-        <div class="val">{{ $examResult->total_questions }}</div>
-        <div class="lbl">Total Questions</div>
     </div>
 </div>
 
-<div class="pass-banner {{ $passed ? 'pass' : 'fail' }}">
-    @if($passed) ✅ PASSED @else ❌ FAILED @endif
-    &nbsp;&nbsp;|&nbsp;&nbsp; {{ $pct }}%
-    @if($exam->pass_percentage)
-        &nbsp;&nbsp;(Pass: {{ $exam->pass_percentage }}%)
-    @endif
+@if(!$ready)
+<div class="pass-banner" style="background:#fef9c3;color:#92400e;border:2px solid #eab308;">
+    WRITING PENDING — overall result not published
 </div>
+@else
+<div class="pass-banner {{ $passed ? 'pass' : 'fail' }}">
+    @if($passed) ✅ PASSED (MCQ + writing) @else ❌ FAILED @endif
+    &nbsp;&nbsp;|&nbsp;&nbsp; {{ $pct }}%
+</div>
+@endif
 
 {{-- Question Breakdown --}}
 <div style="padding: 0 16px 8px; font-size:12px; font-weight:600; color:#4f46e5;">

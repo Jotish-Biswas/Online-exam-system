@@ -14,15 +14,19 @@ class StudentAnswer extends Model
         'original_filename',
         'file_size',
         'file_mime_type',
+        'annotated_file_path',
+        'annotated_original_filename',
         'manual_score',
         'admin_feedback',
-        'is_graded'
+        'is_graded',
+        'feedback_released_at',
     ];
 
     protected $casts = [
         'is_graded' => 'boolean',
         'manual_score' => 'decimal:2',
         'file_size' => 'integer',
+        'feedback_released_at' => 'datetime',
     ];
 
     public function examResult()
@@ -82,6 +86,14 @@ class StudentAnswer extends Model
             return null;
         }
         return asset('storage/' . $this->file_path);
+    }
+
+    public function getAnnotatedFileUrl()
+    {
+        if (!$this->annotated_file_path) {
+            return null;
+        }
+        return asset('storage/' . $this->annotated_file_path);
     }
 
     /**

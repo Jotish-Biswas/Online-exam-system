@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="@yield('meta-description', 'SITC Online Exam System — secure, modern online examination platform.')">
+    <meta name="description" content="@yield('meta-description', config('brand.name') . ' — secure online examination platform.')">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', 'SITC Exam') — SITC Exam System</title>
+    <title>@yield('title', config('brand.short')) — {{ config('brand.name') }}</title>
 
     {{-- Preconnect for Google Fonts --}}
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -25,11 +25,11 @@
     <nav class="shell-nav" role="navigation" aria-label="Main navigation">
         <div class="shell-nav__inner">
             {{-- Brand --}}
-            <a href="/" class="shell-nav__brand">
+            <a href="{{ Auth::check() && Auth::user()->isStudent() ? route('student.dashboard') : route('home') }}" class="shell-nav__brand">
                 <span class="shell-nav__logo" aria-hidden="true">
                     <i class="fas fa-graduation-cap" style="font-size:0.85rem;"></i>
                 </span>
-                <span>SITC Exam</span>
+                <span>{{ config('brand.short') }}</span>
             </a>
 
             {{-- Nav centre slot (page title, breadcrumb, etc.) --}}
@@ -104,6 +104,109 @@
                 localStorage.setItem('sitc-theme', next);
             });
         }
+    })();
+    </script>
+
+    <script>
+    (function() {
+        const icons = ['fa-flask', 'fa-book-open', 'fa-leaf'];
+        const selects = Array.from(document.querySelectorAll('select.field-input:not([multiple])'));
+        let openPicker = null;
+
+        const closePicker = () => {
+            if (!openPicker) return;
+            openPicker.classList.remove('is-open');
+            openPicker.querySelector('.glass-picker__trigger')?.setAttribute('aria-expanded', 'false');
+            openPicker = null;
+        };
+
+        selects.forEach(select => {
+            if (select.dataset.glassPicker) return;
+            select.dataset.glassPicker = 'true';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'glass-picker';
+            select.parentNode.insertBefore(wrapper, select);
+            wrapper.appendChild(select);
+            select.classList.add('glass-picker__native');
+
+            const trigger = document.createElement('button');
+            trigger.type = 'button';
+            trigger.className = 'glass-picker__trigger';
+            trigger.setAttribute('aria-haspopup', 'listbox');
+            trigger.setAttribute('aria-expanded', 'false');
+            trigger.innerHTML = '<i class="glass-picker__icon fas fa-layer-group" aria-hidden="true"></i><span class="glass-picker__label"></span><i class="glass-picker__chevron fas fa-chevron-down" aria-hidden="true"></i>';
+            wrapper.appendChild(trigger);
+
+            const menu = document.createElement('div');
+            menu.className = 'glass-picker__menu';
+            menu.setAttribute('role', 'listbox');
+            wrapper.appendChild(menu);
+
+            const sync = () => {
+                const selected = select.options[select.selectedIndex];
+                trigger.querySelector('.glass-picker__label').textContent = selected?.textContent || '';
+                trigger.disabled = select.disabled;
+                wrapper.classList.toggle('is-disabled', select.disabled);
+                menu.innerHTML = '';
+
+                Array.from(select.options).forEach((option, index) => {
+                    if (!option.value && select.options.length > 1) return;
+                    const item = document.createElement('button');
+                    item.type = 'button';
+                    item.className = 'glass-picker__option' + (option.selected ? ' is-selected' : '');
+                    item.setAttribute('role', 'option');
+                    item.innerHTML = `<i class="fas ${icons[index % icons.length]}" aria-hidden="true"></i><span>${option.textContent}</span>${option.selected ? '<i class="fas fa-check" aria-hidden="true"></i>' : ''}`;
+                    item.addEventListener('click', () => {
+                        select.value = option.value;
+                        select.dispatchEvent(new Event('change', { bubbles: true }));
+                        sync();
+                        closePicker();
+                    });
+                    menu.appendChild(item);
+                });
+            };
+
+            trigger.addEventListener('click', () => {
+                if (select.disabled) return;
+                if (openPicker && openPicker !== wrapper) closePicker();
+                const isOpen = wrapper.classList.toggle('is-open');
+                openPicker = isOpen ? wrapper : null;
+                trigger.setAttribute('aria-expanded', String(isOpen));
+                if (isOpen && window.matchMedia('(max-width: 700px)').matches) {
+                    const rect = trigger.getBoundingClientRect();
+                    menu.style.setProperty('--picker-left', `${Math.max(12, rect.left)}px`);
+                    menu.style.setProperty('--picker-top', `${Math.min(window.innerHeight - 16, rect.bottom + 8)}px`);
+                    menu.style.setProperty('--picker-width', `${rect.width}px`);
+                }
+            });
+            select.addEventListener('change', sync);
+            new MutationObserver(sync).observe(select, { childList: true, subtree: true, attributes: true });
+            sync();
+        });
+
+        document.addEventListener('click', event => {
+            if (openPicker && !openPicker.contains(event.target)) closePicker();
+        });
+    })();
+
+    // Give navigation and form submissions immediate visual feedback before the browser leaves the page.
+    (function() {
+        document.addEventListener('click', event => {
+            const action = event.target.closest('a.btn, button[type="submit"]');
+            if (!action || action.target === '_blank' || action.classList.contains('is-busy')) return;
+            action.classList.add('is-busy');
+            action.setAttribute('aria-busy', 'true');
+        });
+
+        document.addEventListener('submit', event => {
+            const form = event.target;
+            const submitter = event.submitter || form.querySelector('button[type="submit"], input[type="submit"]');
+            if (submitter) {
+                submitter.classList.add('is-busy');
+                submitter.setAttribute('aria-busy', 'true');
+            }
+        });
     })();
     </script>
 

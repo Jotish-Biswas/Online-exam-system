@@ -256,13 +256,22 @@
                                    value="{{ old('negative_marking', $exam->negative_marking ?? '0.00') }}" step="0.05" min="0" max="10">
                             @error('negative_marking') <p class="field-error">{{ $message }}</p> @enderror
                         </div>
-
+                    </div>
+                    <div class="form-grid form-grid--2col" style="margin-top:1.25rem;">
                         <div class="field">
-                            <label class="field-label" for="pass_percentage">Pass %</label>
-                            <input class="field-input {{ $errors->has('pass_percentage') ? 'is-error' : '' }}" 
-                                   type="number" id="pass_percentage" name="pass_percentage" 
-                                   value="{{ old('pass_percentage', $exam->pass_percentage ?? 40) }}" min="1" max="100">
-                            @error('pass_percentage') <p class="field-error">{{ $message }}</p> @enderror
+                            <label class="field-label" for="mcq_pass_percentage">MCQ pass %</label>
+                            <input class="field-input {{ $errors->has('mcq_pass_percentage') ? 'is-error' : '' }}"
+                                   type="number" id="mcq_pass_percentage" name="mcq_pass_percentage"
+                                   value="{{ old('mcq_pass_percentage', $exam->mcq_pass_percentage ?? $exam->pass_percentage ?? 40) }}" min="1" max="100">
+                            @error('mcq_pass_percentage') <p class="field-error">{{ $message }}</p> @enderror
+                        </div>
+                        <div class="field">
+                            <label class="field-label" for="writing_pass_percentage">Writing pass %</label>
+                            <input class="field-input {{ $errors->has('writing_pass_percentage') ? 'is-error' : '' }}"
+                                   type="number" id="writing_pass_percentage" name="writing_pass_percentage"
+                                   value="{{ old('writing_pass_percentage', $exam->writing_pass_percentage ?? $exam->pass_percentage ?? 40) }}" min="1" max="100">
+                            <p class="field-hint">Overall pass requires both sections.</p>
+                            @error('writing_pass_percentage') <p class="field-error">{{ $message }}</p> @enderror
                         </div>
                     </div>
                 </div>

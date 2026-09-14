@@ -142,68 +142,103 @@
 
 @section('content')
 @php
-    $passed = $examResult->isPassed();
-    $totalMarksDisplay = $examResult->total_marks > 0 ? $examResult->total_marks : $exam->questions->count();
-    $pct = $totalMarksDisplay > 0 ? round(($examResult->score / $totalMarksDisplay) * 100, 1) : 0;
-
-    // Calculate ring circumference
+    $sections = $examResult->evaluateSections();
+    $hasWriting = $sections['has_writing'];
+    $writingPending = $hasWriting && !$sections['writing_fully_graded'];
+    $mcqPct = $sections['mcq_percentage'] ?? 0;
     $radius = 60;
     $circumference = 2 * pi() * $radius;
-    $offset = $circumference - ($pct / 100) * $circumference;
+    $offset = $circumference - (($sections['has_mcq'] ? $mcqPct : 0) / 100) * $circumference;
 @endphp
 
 <div class="result-root page-fade-in">
 
-    {{-- Score Banner --}}
-    <div class="score-banner {{ $passed ? 'score-banner--pass' : 'score-banner--fail' }}">
-        <div class="score-ring-wrap">
-            <div class="score-ring">
-                <svg viewBox="0 0 140 140">
-                    <circle class="score-ring__track" cx="70" cy="70" r="{{ $radius }}"></circle>
-                    <circle class="score-ring__fill" cx="70" cy="70" r="{{ $radius }}"
-                            stroke-dasharray="{{ $circumference }}"
-                            stroke-dashoffset="{{ $offset }}"></circle>
-                </svg>
-                <div class="score-ring__label">
-                    <span style="font-size:1.75rem; font-weight:800; color:var(--text); line-height:1;">{{ $pct }}%</span>
-                    <span style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.1rem;">
-                        {{ number_format((float)$examResult->score, 2) }} / {{ number_format((float)$totalMarksDisplay, 2) }}
-                    </span>
+    @if($writingPending)
+        <div class="score-banner" style="background:var(--color-accent-surface); border-color:rgba(10,102,194,.2);">
+            <div class="score-ring-wrap">
+                <div class="score-ring">
+                    <svg viewBox="0 0 140 140">
+                        <circle class="score-ring__track" cx="70" cy="70" r="{{ $radius }}"></circle>
+                        <circle class="score-ring__fill" cx="70" cy="70" r="{{ $radius }}"
+                                style="stroke:var(--color-accent);"
+                                stroke-dasharray="{{ $circumference }}"
+                                stroke-dashoffset="{{ $offset }}"></circle>
+                    </svg>
+                    <div class="score-ring__label">
+                        @if($sections['has_mcq'])
+                            <span style="font-size:1.75rem; font-weight:800; color:var(--text); line-height:1;">{{ $mcqPct }}%</span>
+                            <span style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.1rem;">MCQ only</span>
+                        @else
+                            <span style="font-size:1.1rem; font-weight:700;">Submitted</span>
+                        @endif
+                    </div>
                 </div>
             </div>
+
+            <h1 class="score-banner__title" style="color:var(--color-accent);">Exam submitted</h1>
+            <p style="font-size:0.9375rem; color:var(--text-secondary); margin:0;">
+                Your MCQ marks are ready now. Writing marks and overall result will appear after the teacher grades your scripts.
+            </p>
         </div>
-
-        <h1 class="score-banner__title">
-            {{ $passed ? 'Congratulations, you passed!' : 'Exam Completed' }}
-        </h1>
-        <p style="font-size:0.9375rem; color:var(--text-secondary); margin:0;">
-            {{ $passed ? 'Great job on completing the exam.' : 'You did not meet the passing score this time.' }}
-        </p>
-
-        <div style="margin-top:1rem;">
-            <span class="badge {{ $passed ? 'badge-success' : 'badge-danger' }}" style="font-size:0.875rem; padding:0.4rem 0.8rem;">
-                <span class="badge-dot"></span>
-                {{ $passed ? 'PASSED' : 'FAILED' }}
-            </span>
-            @if($exam->pass_percentage)
-                <p style="font-size:0.75rem; color:var(--text-muted); margin:0.5rem 0 0;">Pass mark: {{ $exam->pass_percentage }}%</p>
-            @endif
+    @else
+        @php $passed = $sections['overall_passed']; $pct = $sections['overall_percentage'] ?? 0; $offsetAll = $circumference - ($pct / 100) * $circumference; @endphp
+        <div class="score-banner {{ $passed ? 'score-banner--pass' : 'score-banner--fail' }}">
+            <div class="score-ring-wrap">
+                <div class="score-ring">
+                    <svg viewBox="0 0 140 140">
+                        <circle class="score-ring__track" cx="70" cy="70" r="{{ $radius }}"></circle>
+                        <circle class="score-ring__fill" cx="70" cy="70" r="{{ $radius }}"
+                                stroke-dasharray="{{ $circumference }}"
+                                stroke-dashoffset="{{ $offsetAll }}"></circle>
+                    </svg>
+                    <div class="score-ring__label">
+                        <span style="font-size:1.75rem; font-weight:800; color:var(--text); line-height:1;">{{ $pct }}%</span>
+                        <span style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.1rem;">
+                            {{ number_format($sections['obtained'], 2) }} / {{ number_format($sections['total'], 2) }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <h1 class="score-banner__title">
+                {{ $passed ? 'Congratulations, you passed!' : 'Exam Completed' }}
+            </h1>
+            <p style="font-size:0.9375rem; color:var(--text-secondary); margin:0;">
+                {{ $passed ? 'You passed both required sections.' : 'You need to pass MCQ and writing separately.' }}
+            </p>
+            <div style="margin-top:1rem;">
+                <span class="badge {{ $passed ? 'badge-success' : 'badge-danger' }}" style="font-size:0.875rem; padding:0.4rem 0.8rem;">
+                    {{ $passed ? 'PASSED' : 'FAILED' }}
+                </span>
+            </div>
         </div>
-    </div>
+    @endif
 
-    {{-- Stats Grid --}}
     <div class="stats-grid">
+        @if($sections['has_mcq'])
         <div class="stat-box">
-            <div class="stat-box__num" style="color:var(--color-success);">{{ $examResult->correct_answers }}</div>
-            <div class="stat-box__label">Correct</div>
+            <div class="stat-box__num" style="color:{{ $sections['mcq_passed'] ? 'var(--color-success)' : 'var(--color-danger)' }};">
+                {{ number_format($sections['mcq_obtained'], 1) }}/{{ number_format($sections['mcq_total'], 1) }}
+            </div>
+            <div class="stat-box__label">MCQ · {{ $sections['mcq_percentage'] }}% · pass {{ $sections['mcq_pass_mark'] }}%</div>
         </div>
+        @endif
+        @if($hasWriting)
         <div class="stat-box">
-            <div class="stat-box__num" style="color:var(--color-danger);">{{ $examResult->total_questions - $examResult->correct_answers }}</div>
-            <div class="stat-box__label">Incorrect</div>
+            <div class="stat-box__num" style="color:var(--text-muted);">
+                {{ $writingPending ? '—' : number_format($sections['writing_obtained'], 1) . '/' . number_format($sections['writing_total'], 1) }}
+            </div>
+            <div class="stat-box__label">{{ $writingPending ? 'Writing pending' : 'Writing · pass '.$sections['writing_pass_mark'].'%' }}</div>
         </div>
+        @endif
         <div class="stat-box">
-            <div class="stat-box__num">{{ $examResult->total_questions }}</div>
-            <div class="stat-box__label">Total Q's</div>
+            <div class="stat-box__num">
+                @if($writingPending)
+                    Hidden
+                @else
+                    {{ $sections['overall_passed'] ? 'Pass' : 'Fail' }}
+                @endif
+            </div>
+            <div class="stat-box__label">Overall</div>
         </div>
         <div class="stat-box">
             <div class="stat-box__num">
@@ -263,11 +298,15 @@
     {{-- Action Bar --}}
     <div class="action-bar">
         <div style="flex:1;">
-            <div style="font-size:0.875rem; font-weight:600; color:var(--text); margin-bottom:0.25rem;">Review your answers</div>
-            <div style="font-size:0.75rem; color:var(--text-muted);">See exactly which questions you got right or wrong.</div>
+            <div style="font-size:0.875rem; font-weight:600; color:var(--text); margin-bottom:0.25rem;">
+                {{ $writingPending ? 'Writing is with your teacher' : 'Review your answers' }}
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted);">
+                {{ $writingPending ? 'Come back with Exam ID + Student ID + Index to see writing feedback.' : 'See which MCQ items you got right, plus writing comments.' }}
+            </div>
         </div>
         <a href="{{ route('student.checkResultsForm') }}" class="btn btn-primary" style="flex-shrink:0;">
-            View Detailed Breakdown
+            {{ $writingPending ? 'Check later for writing marks' : 'View Detailed Breakdown' }}
             <i class="fas fa-arrow-right" style="margin-left:0.3rem;"></i>
         </a>
     </div>

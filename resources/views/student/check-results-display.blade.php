@@ -87,9 +87,10 @@
 
 @section('content')
 @php
-    $passed = $examResult->isPassed();
-    $totalMarksDisplay = $examResult->total_marks > 0 ? $examResult->total_marks : $exam->questions->count();
-    $pct = $totalMarksDisplay > 0 ? round(($examResult->score / $totalMarksDisplay) * 100, 1) : 0;
+    $sections = $sections ?? $examResult->evaluateSections();
+    $writingPending = $sections['has_writing'] && !$sections['writing_fully_graded'];
+    $passed = $sections['overall_passed'];
+    $pct = $sections['overall_percentage'] ?? ($sections['mcq_percentage'] ?? 0);
     
     $radius = 48;
     $circumference = 2 * pi() * $radius;
@@ -110,15 +111,21 @@
                 @endif
             </div>
 
-            @if($hasUngradedFiles)
+            @if($writingPending)
                 <div class="notice notice--info" style="margin-top:1.25rem;">
                     <svg class="notice__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    <span>Grading in progress for file uploads. Final score may change.</span>
+                    <span>MCQ is ready. Writing and overall result stay hidden until your teacher sends marks back.</span>
+                </div>
+            @elseif($sections['has_mcq'] && $sections['has_writing'])
+                <div style="margin-top:1rem; display:flex; flex-wrap:wrap; gap:0.5rem;">
+                    <span class="badge {{ $sections['mcq_passed'] ? 'badge-success' : 'badge-danger' }}">MCQ {{ $sections['mcq_passed'] ? 'Pass' : 'Fail' }} · {{ $sections['mcq_percentage'] }}%</span>
+                    <span class="badge {{ $sections['writing_passed'] ? 'badge-success' : 'badge-danger' }}">Writing {{ $sections['writing_passed'] ? 'Pass' : 'Fail' }} · {{ $sections['writing_percentage'] }}%</span>
+                    <span class="badge {{ $passed ? 'badge-success' : 'badge-danger' }}">Overall {{ $passed ? 'Pass' : 'Fail' }} (both required)</span>
                 </div>
             @endif
         </div>
 
-        @if(!$hasUngradedFiles)
+        @if(!$writingPending)
         <div style="flex-shrink:0; display:flex; gap:1.5rem; align-items:center;">
             <div style="text-align:right;">
                 <div style="font-size:1.75rem; font-weight:800; color:{{ $passed ? 'var(--color-success)' : 'var(--color-danger)' }}; line-height:1; margin-bottom:0.25rem;">
@@ -136,9 +143,14 @@
                             stroke-dashoffset="{{ $offset }}"></circle>
                 </svg>
                 <div class="score-ring__label" style="font-size:0.8125rem; font-weight:600; color:var(--text-muted);">
-                    {{ number_format((float)$examResult->score, 1) }} / {{ $totalMarksDisplay }}
+                    {{ number_format($sections['obtained'], 1) }} / {{ $sections['total'] }}
                 </div>
             </div>
+        </div>
+        @else
+        <div style="flex-shrink:0; text-align:right;">
+            <div style="font-size:1.5rem; font-weight:800; color:var(--color-accent);">{{ $sections['mcq_percentage'] ?? '—' }}%</div>
+            <div style="font-size:0.8125rem; color:var(--text-muted);">MCQ score now</div>
         </div>
         @endif
     </div>
@@ -208,23 +220,31 @@
                                 @if($studentAnswer && $studentAnswer->file_path)
                                     <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem; font-size:0.875rem;">
                                         <i class="fas fa-file-alt" style="color:var(--text-muted);"></i>
-                                        <span style="font-weight:500; color:var(--text);">{{ basename($studentAnswer->file_path) }}</span>
+                                        <a href="{{ $studentAnswer->getFileUrl() }}" target="_blank" style="font-weight:500; color:var(--color-accent);">{{ $studentAnswer->original_filename ?? basename($studentAnswer->file_path) }}</a>
                                     </div>
-                                    
-                                    @if($isGraded)
-                                        <div style="display:inline-flex; align-items:center; gap:0.5rem; background:var(--color-accent-surface); color:var(--color-accent); padding:0.4rem 0.75rem; border-radius:var(--radius-xs); font-size:0.8125rem; font-weight:600;">
-                                            Score: {{ number_format((float)$studentAnswer->manual_score, 2) }} / {{ $qMarks }}
-                                        </div>
-                                        @if($studentAnswer->admin_feedback)
-                                            <div style="margin-top:0.75rem; font-size:0.875rem; color:var(--text-secondary); border-left:2px solid var(--border-strong); padding-left:0.75rem;">
-                                                <strong>Feedback:</strong> {{ $studentAnswer->admin_feedback }}
-                                            </div>
-                                        @endif
-                                    @else
-                                        <span class="badge badge-warning"><i class="fas fa-clock"></i> Pending Grading</span>
-                                    @endif
                                 @else
                                     <p style="font-size:0.875rem; color:var(--text-muted); margin:0; font-style:italic;">No file submitted.</p>
+                                @endif
+
+                                @if($isGraded)
+                                    <div style="display:inline-flex; align-items:center; gap:0.5rem; background:var(--color-accent-surface); color:var(--color-accent); padding:0.4rem 0.75rem; border-radius:var(--radius-xs); font-size:0.8125rem; font-weight:600;">
+                                        Score: {{ number_format((float)$studentAnswer->manual_score, 2) }} / {{ $qMarks }}
+                                    </div>
+                                    @if($studentAnswer->admin_feedback)
+                                        <div style="margin-top:0.75rem; font-size:0.875rem; color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:0.85rem 1rem;">
+                                            <strong style="display:block; margin-bottom:0.35rem;">Teacher feedback</strong>
+                                            {!! nl2br(e($studentAnswer->admin_feedback)) !!}
+                                        </div>
+                                    @endif
+                                    @if($studentAnswer->annotated_file_path)
+                                        <div style="margin-top:0.75rem;">
+                                            <a class="btn btn-secondary" href="{{ $studentAnswer->getAnnotatedFileUrl() }}" target="_blank">
+                                                <i class="fas fa-highlighter"></i> Open marked script
+                                            </a>
+                                        </div>
+                                    @endif
+                                @else
+                                    <span class="badge badge-warning"><i class="fas fa-clock"></i> Teacher has not sent writing marks yet</span>
                                 @endif
                             </div>
 
@@ -279,6 +299,25 @@
                                     <p style="font-size:0.875rem; color:var(--text); margin:0; line-height:1.6;">{{ $question->explanation }}</p>
                                 </div>
                             @endif
+
+                            <div class="ai-explanation" style="margin-top:1.25rem;">
+                                <button
+                                    type="button"
+                                    class="btn btn-secondary ai-explain-button"
+                                    data-url="{{ route('student.ai-explanation', [$examResult->id, $question->id]) }}"
+                                    data-exam-id="{{ $exam->exam_id }}"
+                                    data-student-id="{{ $examResult->student_id }}"
+                                    data-index-no="{{ $examResult->index_no }}"
+                                >
+                                    <i class="fas fa-wand-magic-sparkles"></i> Explain by অনুরণন
+                                </button>
+                                <div class="ai-explanation-output" hidden style="margin-top:0.75rem; background:var(--surface-alt); border:1px solid var(--border); border-radius:var(--radius-md); padding:1rem;">
+                                    <div style="font-size:0.8125rem; font-weight:700; color:var(--color-accent); margin-bottom:0.4rem;">
+                                        <i class="fas fa-language"></i> সহজ বাংলা ব্যাখ্যা
+                                    </div>
+                                    <div class="ai-explanation-text" style="font-size:0.875rem; color:var(--text); line-height:1.65; white-space:pre-line;"></div>
+                                </div>
+                            </div>
                         @endif
 
                     </div>
@@ -312,5 +351,48 @@
             content.classList.remove('is-open');
         }
     }
+
+    document.querySelectorAll('.ai-explain-button').forEach(function (button) {
+        button.addEventListener('click', async function () {
+            const output = button.nextElementSibling;
+            const text = output.querySelector('.ai-explanation-text');
+            const originalLabel = button.innerHTML;
+
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating explanation...';
+            output.hidden = false;
+            text.textContent = 'Please wait...';
+
+            try {
+                const response = await fetch(button.dataset.url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({
+                        exam_id: button.dataset.examId,
+                        student_id: button.dataset.studentId,
+                        index_no: button.dataset.indexNo,
+                    }),
+                });
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || 'Unable to generate explanation.');
+                }
+
+                text.textContent = data.explanation;
+                button.innerHTML = '<i class="fas fa-check"></i> Explanation ready';
+            } catch (error) {
+                output.hidden = true;
+                alert(error.message);
+                button.innerHTML = originalLabel;
+            } finally {
+                button.disabled = false;
+            }
+        });
+    });
 </script>
 @endsection

@@ -343,7 +343,7 @@
                 {{-- Header --}}
                 <div class="card__header" style="padding:0.875rem 1rem;">
                     <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
-                        <h2 style="font-size:0.8125rem; font-weight:600; color:var(--text); margin:0;">Questions</h2>
+                        <h2 style="font-size:0.8125rem; font-weight:600; color:var(--text); margin:0;">Question Palette</h2>
                         <span id="answeredBadge" style="font-size:0.75rem; font-weight:600; color:var(--text-muted);">0 / {{ $exam->questions->count() }}</span>
                     </div>
                 </div>

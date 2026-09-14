@@ -198,12 +198,6 @@
         </div>
     </div>
 
-    @if($errors->any())
-        <div class="notice notice--danger" role="alert" style="margin-bottom:1.25rem;">
-            <span>{{ $errors->first() }} Marks must be between 0 and the question's maximum.</span>
-        </div>
-    @endif
-
     @if($submissions->count() > 0)
         <!-- File Upload Questions Summary -->
         <div class="info-panel">
@@ -252,6 +246,9 @@
                                 return $sa && $sa->is_graded;
                             })->count();
                         @endphp
+                        <a href="{{ route('admin.grade-desk', [$exam->id, $submission->id]) }}" class="btn btn-primary" style="min-height:34px; padding:0.35rem 0.8rem; margin-right:0.4rem;">
+                            <i class="fas fa-chalkboard"></i> Open grade desk
+                        </a>
                         <span class="badge {{ $gradedFileQuestions == $totalFileQuestions ? 'badge-success' : 'badge-warning' }}" style="font-size:0.875rem; padding:0.3rem 0.6rem;">
                             {{ $gradedFileQuestions }}/{{ $totalFileQuestions }} Graded
                         </span>

@@ -1,53 +1,53 @@
-# SITC Exam Management System
+# অনুরণন Exam Portal
 
-A comprehensive Laravel-based online examination platform designed for educational institutions. Create versatile exams, manage multiple question types including file uploads, and provide secure assessment environment with automatic and manual scoring capabilities.
+অনুরণন coaching-এর জন্য Onuranon Exam Portal একটি online examination platform. Create versatile exams, manage MCQ and writing questions with file submissions, and provide secure assessment with automatic and teacher grading.
 
 ## 🌟 Key Features
 
 ### For Administrators
 
--   **Complete Exam Management**: Create, edit, and manage exams with unique IDs and detailed descriptions
--   **Multiple Question Types**:
-    -   Single choice MCQ questions
-    -   Multiple choice MCQ questions
-    -   File upload questions with customizable settings
--   **Advanced Question Management**: Add, edit, delete questions with real-time validation
--   **File Upload Configuration**: Set allowed file types, maximum file sizes (1-100MB)
--   **Exam Control**: Activate/deactivate exams to control student access
--   **Comprehensive Results Dashboard**: View detailed student submissions, scores, and file submissions
--   **Manual Grading System**: Grade file uploads with feedback and custom scoring
--   **Export Capabilities**: Download exam results in Excel format with detailed analytics
--   **Admin Authentication**: Secure admin panel with session-based authentication
+- **Complete Exam Management**: Create, edit, and manage exams with unique IDs and detailed descriptions
+- **Multiple Question Types**:
+    - Single choice MCQ questions
+    - Multiple choice MCQ questions
+    - File upload questions with customizable settings
+- **Advanced Question Management**: Add, edit, delete questions with real-time validation
+- **File Upload Configuration**: Set allowed file types, maximum file sizes (1-100MB)
+- **Exam Control**: Activate/deactivate exams to control student access
+- **Comprehensive Results Dashboard**: View detailed student submissions, scores, and file submissions
+- **Manual Grading System**: Grade file uploads with feedback and custom scoring
+- **Export Capabilities**: Download exam results in Excel format with detailed analytics
+- **Admin Authentication**: Secure admin panel with session-based authentication
 
 ### For Students
 
--   **Simple Access**: Login using Exam ID, Student ID, and Index Number
--   **Mixed Question Types**: Answer MCQ questions and submit files in the same exam
--   **File Upload Support**: Submit documents, images, and other files per question requirements
--   **Secure Sessions**: One attempt per exam with concurrent login prevention
--   **Results Checking**: View detailed results including MCQ scores and file submission status
--   **Auto-Scoring**: Immediate scoring for MCQ questions
--   **User-Friendly Interface**: Clean, responsive design optimized for various devices
+- **Simple Access**: Login using Exam ID, Student ID, and Index Number
+- **Mixed Question Types**: Answer MCQ questions and submit files in the same exam
+- **File Upload Support**: Submit documents, images, and other files per question requirements
+- **Secure Sessions**: One attempt per exam with concurrent login prevention
+- **Results Checking**: View detailed results including MCQ scores and file submission status
+- **Auto-Scoring**: Immediate scoring for MCQ questions
+- **User-Friendly Interface**: Clean, responsive design optimized for various devices
 
 ### Security & Technical Features
 
--   **Single Attempt Enforcement**: Prevents multiple exam submissions per student
--   **Concurrent Login Prevention**: Atomic cache locks prevent simultaneous logins
--   **Session-Based Security**: Secure session management with automatic cleanup
--   **File Upload Security**: Validation of file types, sizes, and storage
--   **CSRF Protection**: Complete protection across all forms and routes
--   **Input Validation**: Comprehensive server-side validation
--   **Admin Route Protection**: Middleware-based access control
--   **Modern CSS Architecture**: Optimized Bootstrap + Tailwind CSS integration
+- **Single Attempt Enforcement**: Prevents multiple exam submissions per student
+- **Concurrent Login Prevention**: Atomic cache locks prevent simultaneous logins
+- **Session-Based Security**: Secure session management with automatic cleanup
+- **File Upload Security**: Validation of file types, sizes, and storage
+- **CSRF Protection**: Complete protection across all forms and routes
+- **Input Validation**: Comprehensive server-side validation
+- **Admin Route Protection**: Middleware-based access control
+- **Modern CSS Architecture**: Optimized Bootstrap + Tailwind CSS integration
 
 ## 🚀 Quick Setup
 
 ### Prerequisites
 
--   PHP 8.2 or higher
--   Composer
--   Node.js & NPM
--   Database (MySQL, PostgreSQL, or SQLite)
+- PHP 8.2 or higher
+- Composer
+- Node.js & NPM
+- Database (MySQL, PostgreSQL, or SQLite)
 
 ### Installation Steps
 
@@ -66,6 +66,24 @@ A comprehensive Laravel-based online examination platform designed for education
     cp .env.example .env
     php artisan key:generate
     ```
+
+    To enable Bengali AI explanations on the result breakdown page, create a
+    Gemini API key in Google AI Studio and add it to `.env` (never commit this
+    value or expose it in browser JavaScript):
+
+    ```env
+    GEMINI_API_KEY=your-new-key
+    GEMINI_MODEL=gemini-2.5-flash-lite
+    ```
+
+    Run the migration after enabling the feature:
+
+    ```bash
+    php artisan migrate
+    ```
+
+    AI responses are cached per result, question, and student answer. The
+    endpoint is rate-limited to help protect the provider's free-tier quota.
 
 3. **Database Setup:**
 
@@ -129,20 +147,18 @@ A comprehensive Laravel-based online examination platform designed for education
 
 ## 🔑 Default Admin Credentials
 
--   **Username**: `sitcexm-admin`
--   **Password**: `SITC@saudiarabia`
+- **Username**: `sitcexm-admin`
+- **Password**: `SITC@saudiarabia`
 
 ## 📖 Complete User Guide
 
 ### Admin Workflow
 
 1. **Login to Admin Panel**:
-
     - Navigate to `/admin/login`
     - Use the default credentials above
 
 2. **Create an Exam**:
-
     - Click "Create New Exam"
     - Enter unique **Exam ID** (e.g., "MATH101", "ENG202")
     - Enter **Exam Name** (e.g., "Mathematics Final Exam")
@@ -152,28 +168,24 @@ A comprehensive Laravel-based online examination platform designed for education
 3. **Add Questions**:
 
     **MCQ Questions (Single/Multiple Choice):**
-
     - Select question type: "Single Choice" or "Multiple Choice"
     - Enter question text
     - Add 2-8 answer options
     - Select correct answer(s) by checking boxes
 
     **File Upload Questions:**
-
     - Select "File Upload" question type
     - Configure allowed file types (PDF, Word, Excel, Images, etc.)
     - Set maximum file size (1-100 MB)
     - Add question instructions
 
 4. **Manage Exams**:
-
     - **Edit Questions**: Modify existing questions and answers
     - **Delete Questions**: Remove unwanted questions with confirmation
     - **Activate/Deactivate**: Control exam availability to students
     - **View Results**: Access comprehensive analytics and submissions
 
 5. **Grade File Submissions**:
-
     - Access "Grade Submissions" for each exam
     - Download and review student file uploads
     - Assign manual scores (0-100)
@@ -188,7 +200,6 @@ A comprehensive Laravel-based online examination platform designed for education
 ### Student Workflow
 
 1. **Access Exam**:
-
     - Visit home page at `/` (redirects to `/start-exam`)
     - Enter **Exam ID** (provided by instructor)
     - Enter **Student ID** (your unique identifier)
@@ -197,20 +208,17 @@ A comprehensive Laravel-based online examination platform designed for education
 2. **Take Exam**:
 
     **MCQ Questions:**
-
     - Select appropriate answer(s) based on question type
     - Single choice: One answer per question
     - Multiple choice: Multiple answers allowed
 
     **File Upload Questions:**
-
     - Click "Choose File" button
     - Select file according to specified requirements
     - Verify file meets size and type restrictions
     - Upload progress indicator shows completion
 
 3. **Submit Exam**:
-
     - Answer ALL questions (submission requires complete responses)
     - Review answers before final submission
     - Click "Submit Exam" for immediate MCQ scoring
@@ -227,9 +235,9 @@ A comprehensive Laravel-based online examination platform designed for education
 
 ### One-Time Policy
 
--   Each student can attempt each exam only once
--   Concurrent logins prevented through security locks
--   Session management ensures data integrity
+- Each student can attempt each exam only once
+- Concurrent logins prevented through security locks
+- Session management ensures data integrity
 
 ## 🏗️ Database Architecture
 
@@ -275,36 +283,36 @@ A comprehensive Laravel-based online examination platform designed for education
 
 ### File Upload Security
 
--   **Type Validation**: Configurable allowed extensions
--   **Size Limits**: 1-100 MB range with validation
--   **Storage Security**: Secure file storage outside web root
--   **MIME Type Checking**: Content-based validation
--   **Filename Sanitization**: Prevention of path traversal
+- **Type Validation**: Configurable allowed extensions
+- **Size Limits**: 1-100 MB range with validation
+- **Storage Security**: Secure file storage outside web root
+- **MIME Type Checking**: Content-based validation
+- **Filename Sanitization**: Prevention of path traversal
 
 ## 🛠️ Technology Stack
 
 ### Backend
 
--   **Framework**: Laravel 12.x (PHP 8.2+)
--   **Database**: MySQL/PostgreSQL/SQLite compatible
--   **File Storage**: Laravel Storage with configurable drivers
--   **Caching**: Laravel Cache (File/Redis/Memcached)
--   **Excel Export**: Maatwebsite/Laravel-Excel
+- **Framework**: Laravel 12.x (PHP 8.2+)
+- **Database**: MySQL/PostgreSQL/SQLite compatible
+- **File Storage**: Laravel Storage with configurable drivers
+- **Caching**: Laravel Cache (File/Redis/Memcached)
+- **Excel Export**: Maatwebsite/Laravel-Excel
 
 ### Frontend & Assets
 
--   **Templating**: Blade engine with component architecture
--   **CSS Framework**: Bootstrap 5.1.3 + Tailwind CSS 4.0
--   **Icons**: Font Awesome 6.0
--   **Build Tool**: Vite 7.0 with Laravel integration
--   **Responsive Design**: Mobile-first approach
+- **Templating**: Blade engine with component architecture
+- **CSS Framework**: Bootstrap 5.1.3 + Tailwind CSS 4.0
+- **Icons**: Font Awesome 6.0
+- **Build Tool**: Vite 7.0 with Laravel integration
+- **Responsive Design**: Mobile-first approach
 
 ### Development & Testing
 
--   **Testing**: Pest PHP testing framework
--   **Code Quality**: Laravel Pint for code formatting
--   **Development**: Laravel Sail for containerization
--   **Debugging**: Laravel Tinker for interactive testing
+- **Testing**: Pest PHP testing framework
+- **Code Quality**: Laravel Pint for code formatting
+- **Development**: Laravel Sail for containerization
+- **Debugging**: Laravel Tinker for interactive testing
 
 ## 📋 API Routes & Endpoints
 
@@ -425,40 +433,40 @@ ls -la public/storage/
 
 ### Known Limitations
 
--   **Admin Authentication**: Hardcoded credentials (suitable for single-admin setup)
--   **Time Limits**: No exam duration restrictions implemented
--   **Question Randomization**: Questions appear in creation order
--   **File Preview**: Limited file preview capabilities in admin interface
--   **Backup System**: No automated backup system for uploaded files
+- **Admin Authentication**: Hardcoded credentials (suitable for single-admin setup)
+- **Time Limits**: No exam duration restrictions implemented
+- **Question Randomization**: Questions appear in creation order
+- **File Preview**: Limited file preview capabilities in admin interface
+- **Backup System**: No automated backup system for uploaded files
 
 ### Configuration Notes
 
--   **File Upload Limits**: Ensure PHP `upload_max_filesize` and `post_max_size` accommodate file size limits
--   **Storage Space**: Monitor storage usage for file uploads
--   **Cache Configuration**: Redis recommended for production concurrent user handling
--   **Database Performance**: Consider indexing for large-scale deployments
+- **File Upload Limits**: Ensure PHP `upload_max_filesize` and `post_max_size` accommodate file size limits
+- **Storage Space**: Monitor storage usage for file uploads
+- **Cache Configuration**: Redis recommended for production concurrent user handling
+- **Database Performance**: Consider indexing for large-scale deployments
 
 ## 🔮 Future Enhancement Roadmap
 
 ### Planned Features
 
--   **Enhanced Authentication**: Multi-admin support with role-based permissions
--   **Exam Timers**: Configurable time limits with countdown displays
--   **Question Banks**: Reusable question libraries across exams
--   **Advanced Analytics**: Detailed performance metrics and reporting
--   **Notification System**: Email alerts for exam completion and grading
--   **Mobile App**: Dedicated mobile application for exam taking
--   **Plagiarism Detection**: Basic file similarity checking
--   **Bulk Operations**: Mass import/export of questions and results
+- **Enhanced Authentication**: Multi-admin support with role-based permissions
+- **Exam Timers**: Configurable time limits with countdown displays
+- **Question Banks**: Reusable question libraries across exams
+- **Advanced Analytics**: Detailed performance metrics and reporting
+- **Notification System**: Email alerts for exam completion and grading
+- **Mobile App**: Dedicated mobile application for exam taking
+- **Plagiarism Detection**: Basic file similarity checking
+- **Bulk Operations**: Mass import/export of questions and results
 
 ### Technical Improvements
 
--   **API Development**: RESTful API for third-party integrations
--   **Real-time Features**: WebSocket-based live exam monitoring
--   **Advanced Security**: Two-factor authentication and audit logs
--   **Performance Optimization**: Database query optimization and caching strategies
--   **Internationalization**: Multi-language support
--   **Cloud Integration**: Support for cloud storage providers
+- **API Development**: RESTful API for third-party integrations
+- **Real-time Features**: WebSocket-based live exam monitoring
+- **Advanced Security**: Two-factor authentication and audit logs
+- **Performance Optimization**: Database query optimization and caching strategies
+- **Internationalization**: Multi-language support
+- **Cloud Integration**: Support for cloud storage providers
 
 ## 🐛 Troubleshooting Guide
 
@@ -466,25 +474,25 @@ ls -la public/storage/
 
 **File Upload Failures:**
 
--   Check PHP configuration: `upload_max_filesize`, `post_max_size`, `max_execution_time`
--   Verify storage permissions: `chmod -R 775 storage/`
--   Ensure storage link exists: `php artisan storage:link`
+- Check PHP configuration: `upload_max_filesize`, `post_max_size`, `max_execution_time`
+- Verify storage permissions: `chmod -R 775 storage/`
+- Ensure storage link exists: `php artisan storage:link`
 
 **Cache/Session Issues:**
 
--   Clear all caches: `php artisan cache:clear`
--   Clear sessions: `php artisan session:flush`
--   Check cache driver configuration in `.env`
+- Clear all caches: `php artisan cache:clear`
+- Clear sessions: `php artisan session:flush`
+- Check cache driver configuration in `.env`
 
 **Database Connection Errors:**
 
--   Verify database credentials in `.env`
--   Ensure database exists and is accessible
--   Check migration status: `php artisan migrate:status`
+- Verify database credentials in `.env`
+- Ensure database exists and is accessible
+- Check migration status: `php artisan migrate:status`
 
 **Permission Errors:**
 
--   Set proper directory permissions:
+- Set proper directory permissions:
     ```bash
     chmod -R 775 storage/
     chmod -R 775 bootstrap/cache/
@@ -492,17 +500,17 @@ ls -la public/storage/
 
 **Excel Export Issues:**
 
--   Ensure Maatwebsite/Excel is properly installed: `composer require maatwebsite/excel`
--   Check temporary directory permissions
+- Ensure Maatwebsite/Excel is properly installed: `composer require maatwebsite/excel`
+- Check temporary directory permissions
 
 ### Performance Optimization
 
 **For High Concurrent Users:**
 
--   Use Redis for cache and sessions
--   Configure database connection pooling
--   Implement file upload queuing for large files
--   Consider CDN for static assets
+- Use Redis for cache and sessions
+- Configure database connection pooling
+- Implement file upload queuing for large files
+- Consider CDN for static assets
 
 ## 📄 License
 
@@ -514,12 +522,12 @@ Built with the Laravel framework and modern web technologies.
 
 ### Core Dependencies
 
--   **Laravel Framework**: https://laravel.com/docs
--   **Laravel Excel**: https://laravel-excel.com/
--   **Bootstrap**: https://getbootstrap.com/
--   **Tailwind CSS**: https://tailwindcss.com/
--   **Font Awesome**: https://fontawesome.com/
--   **Pest Testing**: https://pestphp.com/
+- **Laravel Framework**: https://laravel.com/docs
+- **Laravel Excel**: https://laravel-excel.com/
+- **Bootstrap**: https://getbootstrap.com/
+- **Tailwind CSS**: https://tailwindcss.com/
+- **Font Awesome**: https://fontawesome.com/
+- **Pest Testing**: https://pestphp.com/
 
 ---
 

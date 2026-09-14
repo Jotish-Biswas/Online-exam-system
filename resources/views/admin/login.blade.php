@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Login - SITC Exam</title>
+    <title>Admin Login - {{ config('brand.short') }}</title>
     <!-- Fonts: Preconnect for performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -32,7 +32,7 @@
                 <div class="shell-nav__logo">
                     <i class="fas fa-graduation-cap"></i>
                 </div>
-                SITC Exam
+                {{ config('brand.short') }}
             </a>
             <div class="shell-nav__actions">
                 <button type="button" class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">

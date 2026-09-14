@@ -16,6 +16,9 @@ Route::prefix('admin')->name('admin.')->group(function () {
 // Admin Routes (protected by middleware)
 Route::prefix('examadmin')->name('admin.')->middleware('admin')->group(function () {
     Route::get('/', [AdminController::class, 'dashboard'])->name('dashboard');
+    Route::get('/ai-question-generator', [AdminController::class, 'aiQuestionGenerator'])->name('ai-question-generator');
+    Route::post('/ai-question-generator', [AdminController::class, 'generateAiQuestions'])->name('generate-ai-questions');
+    Route::post('/ai-question-generator/chat', [AdminController::class, 'chatAiQuestions'])->name('chat-ai-questions');
     Route::get('/create-exam', [AdminController::class, 'createExam'])->name('create-exam');
     Route::post('/store-exam', [AdminController::class, 'storeExam'])->name('store-exam');
     Route::get('/exam/{exam}/edit', [AdminController::class, 'editExam'])->name('edit-exam');
@@ -31,6 +34,7 @@ Route::prefix('examadmin')->name('admin.')->middleware('admin')->group(function 
     Route::put('/student-answer/{studentAnswer}/grade', [AdminController::class, 'gradeFileSubmission'])->name('grade-file-submission');
     Route::put('/exam-result/{examResult}/question/{question}/grade', [AdminController::class, 'gradeWritingQuestion'])->name('grade-writing-question');
     Route::get('/exam/{exam}/grade-submissions', [AdminController::class, 'gradeSubmissions'])->name('grade-submissions');
+    Route::get('/exam/{exam}/grade-desk/{examResult}', [AdminController::class, 'gradeDesk'])->name('grade-desk');
     Route::post('/exam/{exam}/toggle-status', [AdminController::class, 'toggleExamStatus'])->name('toggle-status');
     Route::get('/exam/{exam}/results', [AdminController::class, 'examResults'])->name('exam-results');
     Route::get('/exam/{exam}/results/download', [AdminController::class, 'downloadResults'])->name('download-results');
@@ -44,16 +48,33 @@ Route::prefix('examadmin')->name('admin.')->middleware('admin')->group(function 
     Route::post('/manage-admins', [AdminController::class, 'storeAdmin'])->name('store-admin');
     Route::delete('/admin-user/{user}', [AdminController::class, 'deleteAdmin'])->name('delete-admin');
     Route::post('/admin-user/{user}/toggle', [AdminController::class, 'toggleAdminStatus'])->name('toggle-admin-status');
+    Route::get('/students', [AdminController::class, 'manageStudents'])->name('students');
+    Route::post('/students', [AdminController::class, 'storeStudent'])->name('store-student');
+    Route::delete('/student/{user}', [AdminController::class, 'deleteStudent'])->name('delete-student');
+    Route::post('/student/{user}/toggle', [AdminController::class, 'toggleStudentStatus'])->name('toggle-student-status');
+    Route::post('/architecture/groups', [AdminController::class, 'storeAcademicGroup'])->name('architecture.groups.store');
+    Route::post('/architecture/subjects', [AdminController::class, 'storeAcademicSubject'])->name('architecture.subjects.store');
+    Route::post('/architecture/chapters', [AdminController::class, 'storeAcademicChapter'])->name('architecture.chapters.store');
+    Route::delete('/architecture/groups/{group}', [AdminController::class, 'deleteAcademicGroup'])->name('architecture.groups.delete');
+    Route::delete('/architecture/subjects/{subject}', [AdminController::class, 'deleteAcademicSubject'])->name('architecture.subjects.delete');
+    Route::delete('/architecture/chapters/{chapter}', [AdminController::class, 'deleteAcademicChapter'])->name('architecture.chapters.delete');
 });
 
 // Student Routes
 Route::get('/start-exam', [StudentController::class, 'login'])->name('student.login');
+Route::get('/student/dashboard', [StudentController::class, 'dashboard'])->name('student.dashboard')->middleware('student');
+Route::get('/student/profile', [StudentController::class, 'profile'])->name('student.profile')->middleware('student');
+Route::get('/student/exam/{exam}/begin', [StudentController::class, 'beginExam'])->name('student.begin-exam')->middleware('student');
+Route::get('/student/results/{examResult}', [StudentController::class, 'historyResult'])->name('student.history-result')->middleware('student');
 Route::get('/check-results', [StudentController::class, 'checkResultsForm'])->name('student.checkResultsForm');
 Route::post('/check-results', [StudentController::class, 'checkResults'])->name('student.checkResults');
+Route::post('/student/results/{examResult}/questions/{question}/ai-explanation', [StudentController::class, 'explainWithAi'])->name('student.ai-explanation');
 Route::prefix('student')->name('student.')->group(function () {
     Route::post('/authenticate', [StudentController::class, 'authenticate'])->name('authenticate');
-    Route::get('/exam/{exam}/preview', [StudentController::class, 'examPreview'])->name('exam-preview');
-    Route::get('/exam/{exam}', [StudentController::class, 'exam'])->name('exam');
-    Route::post('/exam/{exam}/submit', [StudentController::class, 'submitExam'])->name('submit-exam');
+    Route::middleware('student')->group(function () {
+        Route::get('/exam/{exam}/preview', [StudentController::class, 'examPreview'])->name('exam-preview');
+        Route::get('/exam/{exam}', [StudentController::class, 'exam'])->name('exam');
+        Route::post('/exam/{exam}/submit', [StudentController::class, 'submitExam'])->name('submit-exam');
+    });
     Route::post('/logout', [StudentController::class, 'logout'])->name('logout');
 });

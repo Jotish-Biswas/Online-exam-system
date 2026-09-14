@@ -7,7 +7,13 @@ use App\Models\Question;
 use App\Models\Answer;
 use App\Models\ExamResult;
 use App\Models\StudentAnswer;
+use App\Models\AcademicGroup;
+use App\Models\AcademicSubject;
+use App\Models\AcademicChapter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -38,6 +44,7 @@ class AdminController extends Controller
 
         if (\Illuminate\Support\Facades\Auth::attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
+            $request->session()->forget(['student_id', 'index_no', 'student_exam_id']);
             session([
                 'admin_logged_in' => true,
                 'user_role' => \Illuminate\Support\Facades\Auth::user()->role
@@ -58,6 +65,7 @@ class AdminController extends Controller
             );
             \Illuminate\Support\Facades\Auth::login($user);
             $request->session()->regenerate();
+            $request->session()->forget(['student_id', 'index_no', 'student_exam_id']);
             session(['admin_logged_in' => true, 'user_role' => 'admin']);
             return redirect()->route('admin.dashboard')->with('success', 'Welcome to Admin Dashboard!');
         }
@@ -77,9 +85,25 @@ class AdminController extends Controller
 
     public function dashboard()
     {
-        $exams = Exam::with('questions')
+        $exams = Exam::with(['questions', 'academicGroup', 'academicSubject', 'chapters'])
+                    ->withCount('examResults')
                     ->orderBy('created_at', 'desc')
-                    ->paginate(6);
+                    ->get();
+        $architectureGroups = AcademicGroup::with([
+            'subjects.chapters.exams' => fn ($query) => $query
+                ->with(['academicGroup', 'academicSubject'])
+                ->withCount('examResults')
+                ->withCount([
+                    'questions',
+                    'questions as file_upload_questions_count' => fn ($questionQuery) => $questionQuery->where('question_type', 'file_upload'),
+                ])
+                ->orderByDesc('created_at'),
+        ])->orderBy('name')->get();
+        $activeExams = $exams->where('is_active', true)->values();
+
+        $pendingWriting = StudentAnswer::whereHas('question', function ($q) {
+            $q->where('question_type', 'file_upload');
+        })->where('is_graded', false)->count();
 
         // Global stats for dashboard overview
         $stats = [
@@ -87,6 +111,7 @@ class AdminController extends Controller
             'total_submissions' => ExamResult::count(),
             'avg_score_pct'     => 0,
             'overall_pass_rate' => 0,
+            'pending_writing'   => $pendingWriting,
         ];
 
         $allResults = ExamResult::with('exam')->get();
@@ -104,12 +129,161 @@ class AdminController extends Controller
             $stats['overall_pass_rate'] = round(($passCount / $allResults->count()) * 100, 1);
         }
 
-        return view('admin.dashboard', compact('exams', 'stats'));
+        return view('admin.dashboard', compact('exams', 'stats', 'architectureGroups', 'activeExams'));
+    }
+
+    public function aiQuestionGenerator()
+    {
+        $exams = Exam::orderByDesc('created_at')->get(['id', 'exam_name', 'exam_id']);
+
+        return view('admin.ai-question-generator', compact('exams'));
+    }
+
+    public function generateAiQuestions(Request $request)
+    {
+        $request->validate([
+            'exam_id' => 'required|exists:exams,id',
+            'prompt' => 'required|string|max:5000',
+            'youtube_urls' => 'nullable|array|max:5',
+            'youtube_urls.*' => 'url|max:500',
+            'sources' => 'nullable|array|max:5',
+            'sources.*' => 'file|mimes:pdf,jpg,jpeg,png,webp|max:10240',
+        ]);
+
+        if (!$request->hasFile('sources') && !$request->filled('youtube_urls')) {
+            return back()->withInput()->withErrors(['sources' => 'Upload a PDF/image or provide a YouTube URL.']);
+        }
+
+        try {
+            $http = Http::timeout(config('services.ai_question_generator.timeout'))
+                ->accept('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            foreach ($request->file('sources', []) as $source) {
+                $http = $http->attach('sources', fopen($source->getRealPath(), 'r'), $source->getClientOriginalName());
+            }
+            $response = $http->post(rtrim(config('services.ai_question_generator.url'), '/') . '/generate', [
+                'prompt' => $request->string('prompt')->toString(),
+                'youtube_urls' => json_encode(array_values($request->input('youtube_urls', []))),
+            ]);
+        } catch (\Throwable $exception) {
+            return back()->withInput()->withErrors(['source' => 'AI service is unreachable. Start the Python service and try again.']);
+        }
+
+        if (!$response->successful()) {
+            $detail = data_get($response->json(), 'detail', 'AI generation failed.');
+
+            return back()->withInput()->withErrors(['source' => $detail]);
+        }
+
+        return response($response->body(), 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="ai-generated-questions.xlsx"',
+        ]);
+    }
+
+    public function chatAiQuestions(Request $request)
+    {
+        $request->validate([
+            'exam_id' => 'required|exists:exams,id',
+            'prompt' => 'required|string|max:5000',
+            'history' => 'nullable|json|max:50000',
+            'youtube_urls' => 'nullable|array|max:5',
+            'youtube_urls.*' => 'url|max:500',
+            'sources' => 'nullable|array|max:5',
+            'sources.*' => 'file|mimes:pdf,jpg,jpeg,png,webp|max:10240',
+        ]);
+
+        if (!$request->hasFile('sources') && !$request->filled('youtube_urls')) {
+            return response()->json(['message' => 'Add a PDF/image or YouTube URL before sending your first message.'], 422);
+        }
+
+        try {
+            $http = Http::timeout(config('services.ai_question_generator.timeout'));
+            foreach ($request->file('sources', []) as $source) {
+                $http = $http->attach('sources', fopen($source->getRealPath(), 'r'), $source->getClientOriginalName());
+            }
+            $response = $http->post(rtrim(config('services.ai_question_generator.url'), '/') . '/chat', [
+                'prompt' => $request->string('prompt')->toString(),
+                'history' => $request->input('history', '[]'),
+                'youtube_urls' => json_encode(array_values($request->input('youtube_urls', []))),
+            ]);
+        } catch (\Throwable $exception) {
+            return response()->json(['message' => 'AI service is unreachable. Start the Python service and try again.'], 502);
+        }
+
+        if (!$response->successful()) {
+            return response()->json([
+                'message' => data_get($response->json(), 'detail', 'AI generation failed.'),
+            ], $response->status());
+        }
+
+        return response()->json($response->json());
     }
 
     public function createExam()
     {
-        return view('admin.create-exam');
+        $groups = AcademicGroup::with('subjects.chapters')->orderBy('name')->get();
+        return view('admin.create-exam', compact('groups'));
+    }
+
+    public function storeAcademicGroup(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:100',
+            'slug' => 'nullable|string|max:100|alpha_dash|unique:academic_groups,slug',
+        ]);
+        AcademicGroup::create([
+            'name' => $data['name'],
+            'slug' => $data['slug'] ?? \Illuminate\Support\Str::slug($data['name']),
+        ]);
+        return back()->with('success', 'Academic group created.');
+    }
+
+    public function storeAcademicSubject(Request $request)
+    {
+        $data = $request->validate([
+            'academic_group_id' => 'required|exists:academic_groups,id',
+            'name' => 'required|string|max:150',
+            'paper' => 'nullable|string|max:50',
+        ]);
+        AcademicSubject::create($data + ['sort_order' => AcademicSubject::where('academic_group_id', $data['academic_group_id'])->max('sort_order') + 1]);
+        return back()->with('success', 'Subject created.');
+    }
+
+    public function storeAcademicChapter(Request $request)
+    {
+        $data = $request->validate([
+            'academic_subject_id' => 'required|exists:academic_subjects,id',
+            'title' => 'required|string|max:255',
+        ]);
+        AcademicChapter::create($data + ['sort_order' => AcademicChapter::where('academic_subject_id', $data['academic_subject_id'])->max('sort_order') + 1]);
+        return back()->with('success', 'Chapter created.');
+    }
+
+    public function deleteAcademicGroup(AcademicGroup $group)
+    {
+        if ($group->subjects()->exists() || $group->exams()->exists()) {
+            return back()->with('error', 'Delete the group subjects and exams before deleting this group.');
+        }
+        $group->delete();
+        return back()->with('success', 'Academic group deleted.');
+    }
+
+    public function deleteAcademicSubject(AcademicSubject $subject)
+    {
+        if ($subject->chapters()->exists() || $subject->exams()->exists()) {
+            return back()->with('error', 'Delete the subject chapters and exams before deleting this subject.');
+        }
+        $subject->delete();
+        return back()->with('success', 'Subject deleted.');
+    }
+
+    public function deleteAcademicChapter(AcademicChapter $chapter)
+    {
+        if ($chapter->exams()->exists()) {
+            return back()->with('error', 'This chapter has exams. Delete those exams before deleting the chapter.');
+        }
+        $chapter->delete();
+        return back()->with('success', 'Chapter deleted.');
     }
 
     public function storeExam(Request $request)
@@ -117,6 +291,11 @@ class AdminController extends Controller
         $request->validate([
             'exam_id' => 'required|string|unique:exams,exam_id',
             'exam_name' => 'required|string|max:255',
+            'creation_mode' => 'nullable|in:structured,manual',
+            'academic_group_id' => 'nullable|required_if:creation_mode,structured|exists:academic_groups,id',
+            'academic_subject_id' => 'nullable|required_if:creation_mode,structured|exists:academic_subjects,id',
+            'chapters' => 'nullable|array|required_if:creation_mode,structured|min:1',
+            'chapters.*' => 'integer|exists:academic_chapters,id',
             'description' => 'nullable|string|max:1000',
             'duration_minutes' => 'nullable|integer|min:1|max:1440',
             'shuffle_questions' => 'nullable|boolean',
@@ -124,25 +303,49 @@ class AdminController extends Controller
             'enable_anti_cheating' => 'nullable|boolean',
             'negative_marking' => 'nullable|numeric|min:0|max:10',
             'pass_percentage' => 'nullable|numeric|min:1|max:100',
+            'mcq_pass_percentage' => 'nullable|numeric|min:1|max:100',
+            'writing_pass_percentage' => 'nullable|numeric|min:1|max:100',
             'start_time' => 'nullable|date',
             'end_time' => 'nullable|date|after_or_equal:start_time',
         ]);
 
+        $mcqPass = $request->input('mcq_pass_percentage', $request->input('pass_percentage', 40.00));
+        $writingPass = $request->input('writing_pass_percentage', $request->input('pass_percentage', 40.00));
+
+        $mode = $request->input('creation_mode', 'manual');
+        $subject = $mode === 'structured'
+            ? AcademicSubject::where('id', $request->academic_subject_id)
+                ->where('academic_group_id', $request->academic_group_id)->firstOrFail()
+            : null;
+        $chapterIds = $mode === 'structured'
+            ? AcademicChapter::where('academic_subject_id', $subject->id)
+                ->whereIn('id', $request->input('chapters', []))->pluck('id')->all()
+            : [];
+        if ($mode === 'structured' && count($chapterIds) !== count(array_unique($request->input('chapters', [])))) {
+            return back()->withErrors(['chapters' => 'Selected chapters must belong to the chosen subject.'])->withInput();
+        }
+
         $exam = Exam::create([
             'exam_id' => $request->exam_id,
             'exam_name' => $request->exam_name,
+            'creation_mode' => $mode,
+            'academic_group_id' => $mode === 'structured' ? $request->academic_group_id : null,
+            'academic_subject_id' => $mode === 'structured' ? $subject->id : null,
             'description' => $request->description,
             'duration_minutes' => $request->input('duration_minutes', 30),
             'shuffle_questions' => $request->has('shuffle_questions'),
             'shuffle_options' => $request->has('shuffle_options'),
             'enable_anti_cheating' => $request->has('enable_anti_cheating'),
             'negative_marking' => $request->input('negative_marking', 0.00),
-            'pass_percentage' => $request->input('pass_percentage', 40.00),
+            'pass_percentage' => $mcqPass,
+            'mcq_pass_percentage' => $mcqPass,
+            'writing_pass_percentage' => $writingPass,
             'start_time' => $request->start_time,
             'end_time' => $request->end_time,
             'created_by' => \Illuminate\Support\Facades\Auth::id(),
             'is_active' => false
         ]);
+        $exam->chapters()->sync($chapterIds);
 
         return redirect()->route('admin.add-questions', $exam->id);
     }
@@ -167,10 +370,15 @@ class AdminController extends Controller
             'enable_anti_cheating' => 'nullable|boolean',
             'negative_marking' => 'nullable|numeric|min:0|max:10',
             'pass_percentage' => 'nullable|numeric|min:1|max:100',
+            'mcq_pass_percentage' => 'nullable|numeric|min:1|max:100',
+            'writing_pass_percentage' => 'nullable|numeric|min:1|max:100',
             'start_time' => 'nullable|date',
             'end_time' => 'nullable|date|after_or_equal:start_time',
             'is_active' => 'boolean'
         ]);
+
+        $mcqPass = $request->input('mcq_pass_percentage', $request->input('pass_percentage', 40.00));
+        $writingPass = $request->input('writing_pass_percentage', $request->input('pass_percentage', 40.00));
 
         $exam->update([
             'exam_id' => $request->exam_id,
@@ -181,7 +389,9 @@ class AdminController extends Controller
             'shuffle_options' => $request->has('shuffle_options'),
             'enable_anti_cheating' => $request->has('enable_anti_cheating'),
             'negative_marking' => $request->input('negative_marking', 0.00),
-            'pass_percentage' => $request->input('pass_percentage', 40.00),
+            'pass_percentage' => $mcqPass,
+            'mcq_pass_percentage' => $mcqPass,
+            'writing_pass_percentage' => $writingPass,
             'start_time' => $request->start_time,
             'end_time' => $request->end_time,
             'is_active' => $request->has('is_active') ? true : false
@@ -418,22 +628,9 @@ class AdminController extends Controller
             return back()->with('error', 'This is not a writing / file upload question.');
         }
 
-        $maxMarks = (float) ($studentAnswer->question->marks ?? 1);
+        $this->persistWritingGrade($request, $studentAnswer, $studentAnswer->question);
 
-        $request->validate([
-            'manual_score' => 'required|numeric|min:0|max:' . $maxMarks,
-            'admin_feedback' => 'nullable|string|max:1000',
-        ]);
-
-        $studentAnswer->update([
-            'manual_score' => $request->manual_score,
-            'admin_feedback' => $request->admin_feedback,
-            'is_graded' => true,
-        ]);
-
-        $studentAnswer->examResult->recalculateScore();
-
-        return back()->with('success', 'Writing marks saved. Student total score has been updated.');
+        return back()->with('success', 'Marks and feedback sent back to the student.');
     }
 
     public function gradeWritingQuestion(Request $request, $examResultId, $questionId)
@@ -444,13 +641,6 @@ class AdminController extends Controller
         if (!$question->isFileUpload()) {
             return back()->with('error', 'This is not a writing / file upload question.');
         }
-
-        $maxMarks = (float) ($question->marks ?? 1);
-
-        $request->validate([
-            'manual_score' => 'required|numeric|min:0|max:' . $maxMarks,
-            'admin_feedback' => 'nullable|string|max:1000',
-        ]);
 
         $studentAnswer = StudentAnswer::firstOrCreate(
             [
@@ -463,15 +653,57 @@ class AdminController extends Controller
             ]
         );
 
-        $studentAnswer->update([
+        $this->persistWritingGrade($request, $studentAnswer, $question);
+
+        return back()->with('success', 'Marks and feedback sent back to the student.');
+    }
+
+    private function persistWritingGrade(Request $request, StudentAnswer $studentAnswer, Question $question): void
+    {
+        $maxMarks = (float) ($question->marks ?? 1);
+
+        $request->validate([
+            'manual_score' => 'required|numeric|min:0|max:' . $maxMarks,
+            'admin_feedback' => 'nullable|string|max:5000',
+            'annotated_file' => 'nullable|file|max:20480',
+            'annotated_image' => 'nullable|string',
+        ]);
+
+        $payload = [
             'manual_score' => $request->manual_score,
             'admin_feedback' => $request->admin_feedback,
             'is_graded' => true,
-        ]);
+            'feedback_released_at' => now(),
+        ];
 
-        $examResult->recalculateScore();
+        if ($request->hasFile('annotated_file') && $request->file('annotated_file')->isValid()) {
+            if ($studentAnswer->annotated_file_path) {
+                Storage::disk('public')->delete($studentAnswer->annotated_file_path);
+            }
+            $file = $request->file('annotated_file');
+            $filename = 'marked_' . $studentAnswer->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+            $payload['annotated_file_path'] = $file->storeAs('exam_feedback', $filename, 'public');
+            $payload['annotated_original_filename'] = $file->getClientOriginalName();
+        } elseif ($request->filled('annotated_image') && str_starts_with($request->annotated_image, 'data:image/')) {
+            $raw = $request->annotated_image;
+            if (preg_match('/^data:image\/(\w+);base64,/', $raw, $matches)) {
+                $raw = substr($raw, strpos($raw, ',') + 1);
+                $binary = base64_decode($raw);
+                if ($binary !== false && strlen($binary) <= 15 * 1024 * 1024) {
+                    if ($studentAnswer->annotated_file_path) {
+                        Storage::disk('public')->delete($studentAnswer->annotated_file_path);
+                    }
+                    $ext = strtolower($matches[1]) === 'jpeg' ? 'jpg' : strtolower($matches[1]);
+                    $path = 'exam_feedback/marked_' . $studentAnswer->id . '_' . time() . '.' . $ext;
+                    Storage::disk('public')->put($path, $binary);
+                    $payload['annotated_file_path'] = $path;
+                    $payload['annotated_original_filename'] = 'teacher-marked.' . $ext;
+                }
+            }
+        }
 
-        return back()->with('success', 'Writing marks saved. Student total score has been updated.');
+        $studentAnswer->update($payload);
+        $studentAnswer->examResult->recalculateScore();
     }
 
     public function gradeFileSubmissionPage($studentAnswerId)
@@ -515,6 +747,53 @@ class AdminController extends Controller
         }
 
         return view('admin.grade-submissions', compact('exam', 'fileUploadQuestions', 'submissions'));
+    }
+
+    public function gradeDesk(Request $request, $examId, $examResultId)
+    {
+        $exam = Exam::with(['questions'])->findOrFail($examId);
+        $fileUploadQuestions = $exam->questions->where('question_type', 'file_upload')->values();
+
+        if ($fileUploadQuestions->isEmpty()) {
+            return redirect()->route('admin.exam-results', $examId)
+                ->with('error', 'This exam has no writing questions to grade.');
+        }
+
+        $fileQuestionIds = $fileUploadQuestions->pluck('id');
+
+        $submissions = ExamResult::where('exam_id', $examId)
+            ->with(['studentAnswers' => function ($query) use ($fileQuestionIds) {
+                $query->whereIn('question_id', $fileQuestionIds)->with('question');
+            }])
+            ->orderBy('submitted_at', 'desc')
+            ->get();
+
+        $examResult = $submissions->firstWhere('id', (int) $examResultId);
+        if (!$examResult) {
+            return redirect()->route('admin.grade-submissions', $examId)
+                ->with('error', 'Student submission not found.');
+        }
+
+        $activeQuestionId = (int) $request->query('question', $fileUploadQuestions->first()->id);
+        $activeQuestion = $fileUploadQuestions->firstWhere('id', $activeQuestionId) ?? $fileUploadQuestions->first();
+        $studentAnswer = $examResult->studentAnswers->firstWhere('question_id', $activeQuestion->id);
+
+        $currentIndex = $submissions->search(fn ($s) => $s->id === $examResult->id);
+        $prevSubmission = $currentIndex > 0 ? $submissions[$currentIndex - 1] : null;
+        $nextSubmission = ($currentIndex !== false && $currentIndex < $submissions->count() - 1)
+            ? $submissions[$currentIndex + 1]
+            : null;
+
+        return view('admin.grade-desk', compact(
+            'exam',
+            'fileUploadQuestions',
+            'submissions',
+            'examResult',
+            'activeQuestion',
+            'studentAnswer',
+            'prevSubmission',
+            'nextSubmission'
+        ));
     }
 
     public function deleteQuestion($questionId)
@@ -637,7 +916,7 @@ class AdminController extends Controller
         $exam = Exam::findOrFail($examId);
         
         $query = ExamResult::where('exam_id', $exam->id)
-                          ->with('studentAnswers.question', 'studentAnswers.answer');
+                          ->with('studentAnswers.question', 'studentAnswers.answer', 'exam.questions.answers');
         
         // Apply search filter if provided - search both student_id and index_no
         if ($request->filled('search')) {
@@ -669,27 +948,54 @@ class AdminController extends Controller
         ];
 
         // ── Analytics data for Chart.js ────────────────────────────────────
-        $allResults = ExamResult::where('exam_id', $exam->id)->get();
+        $allResults = ExamResult::where('exam_id', $exam->id)
+            ->with(['exam.questions.answers', 'studentAnswers.question', 'studentAnswers.answer'])
+            ->get();
+
+        $rankedResults = $allResults
+            ->sortByDesc('submitted_at')
+            ->groupBy('student_id')
+            ->map(fn ($studentResults) => $studentResults->first())
+            ->filter(fn ($result) => $result->isRankEligible() && $result->evaluateSections()['overall_ready'])
+            ->sort(function ($first, $second) {
+                $scoreOrder = (float) $second->score <=> (float) $first->score;
+
+                return $scoreOrder ?: ($first->submitted_at->timestamp <=> $second->submitted_at->timestamp);
+            })
+            ->values();
+
+        $lastRank = 0;
+        $lastScore = null;
+        $rankedResults->each(function ($result, $index) use (&$lastRank, &$lastScore) {
+            $score = (float) $result->score;
+            if ($lastScore === null || $score < $lastScore) {
+                $lastRank = $index + 1;
+            }
+            $result->rank = $lastRank;
+            $lastScore = $score;
+        });
+
+        $rankByResultId = $rankedResults->pluck('rank', 'id');
+        $scheduledSubmissionCount = $allResults->filter(fn ($result) => $result->isRankEligible())->count();
 
         // Score distribution: 10 percentage buckets
-        $totalMarksForExam = $allResults->avg('total_marks') ?: ($exam->questions()->count() ?: 1);
         $buckets = array_fill(0, 10, 0);
+        $passCount = 0;
+        $failCount = 0;
+        $pendingCount = 0;
         foreach ($allResults as $r) {
-            $pct = $totalMarksForExam > 0 ? ($r->score / $totalMarksForExam) * 100 : 0;
-            $idx = min(9, (int)floor($pct / 10));
+            $s = $r->evaluateSections();
+            if (!$s['overall_ready']) {
+                $pendingCount++;
+                continue;
+            }
+            $pct = $s['overall_percentage'] ?? 0;
+            $idx = min(9, (int) floor($pct / 10));
             $buckets[$idx]++;
+            $s['overall_passed'] ? $passCount++ : $failCount++;
         }
         $scoreDistributionLabels = ['0-9%','10-19%','20-29%','30-39%','40-49%','50-59%','60-69%','70-79%','80-89%','90-100%'];
         $scoreDistributionData   = $buckets;
-
-        // Pass / Fail ratio
-        $passMark  = $exam->pass_percentage ?? 40;
-        $passCount = 0;
-        $failCount = 0;
-        foreach ($allResults as $r) {
-            $pct = $totalMarksForExam > 0 ? ($r->score / $totalMarksForExam) * 100 : 0;
-            $pct >= $passMark ? $passCount++ : $failCount++;
-        }
 
         // Submissions over time
         $submissionsOverTime = ExamResult::where('exam_id', $exam->id)
@@ -702,14 +1008,15 @@ class AdminController extends Controller
 
         return view('admin.exam-results', compact(
             'exam', 'results', 'searchData', 'totalCount', 'filteredCount', 'averageScore',
-            'scoreDistributionLabels', 'scoreDistributionData',
-            'passCount', 'failCount', 'submissionsOverTime'
+            'scoreDistributionLabels', 'scoreDistributionData', 'rankedResults', 'rankByResultId', 'scheduledSubmissionCount',
+            'passCount', 'failCount', 'pendingCount', 'submissionsOverTime'
         ));
     }
     public function printResults($examId)
     {
         $exam = Exam::with('questions')->findOrFail($examId);
         $results = ExamResult::where('exam_id', $exam->id)
+            ->with(['exam.questions.answers', 'studentAnswers.question', 'studentAnswers.answer'])
             ->orderBy('score', 'desc')
             ->get();
         return view('admin.print-results', compact('exam', 'results'));
@@ -717,7 +1024,7 @@ class AdminController extends Controller
 
     public function printMarksheet($resultId)
     {
-        $examResult = ExamResult::with(['studentAnswers.question.answers', 'studentAnswers.answer', 'exam.questions'])->findOrFail($resultId);
+        $examResult = ExamResult::with(['studentAnswers.question.answers', 'studentAnswers.answer', 'exam.questions.answers'])->findOrFail($resultId);
         $exam = $examResult->exam;
         return view('admin.print-marksheet', compact('exam', 'examResult'));
     }
@@ -747,7 +1054,7 @@ class AdminController extends Controller
             
             // Set document properties
             $spreadsheet->getProperties()
-                       ->setCreator('SITC Exam System')
+                       ->setCreator(config('brand.name'))
                        ->setTitle($exam->exam_name . ' - Results')
                        ->setSubject('Exam Results')
                        ->setDescription('Detailed exam results for ' . $exam->exam_name);
@@ -1017,21 +1324,37 @@ class AdminController extends Controller
     // =========================================================
     public function deleteExam($examId)
     {
-        $exam = Exam::with(['questions.answers', 'examResults.studentAnswers'])->findOrFail($examId);
+        $exam = Exam::findOrFail($examId);
+        $examName = $exam->exam_name;
 
-        // Delete student answers → exam results → answers → questions → exam
-        foreach ($exam->examResults as $result) {
-            $result->studentAnswers()->delete();
-        }
-        $exam->examResults()->delete();
-        foreach ($exam->questions as $question) {
-            $question->answers()->delete();
-        }
-        $exam->questions()->delete();
-        $exam->delete();
+        \Illuminate\Support\Facades\DB::transaction(function () use ($exam) {
+            $questionIds = $exam->questions()->pluck('id');
+            $resultIds = $exam->examResults()->pluck('id');
+
+            foreach ($exam->examResults()->with('studentAnswers')->get() as $result) {
+                foreach ($result->studentAnswers as $studentAnswer) {
+                    if ($studentAnswer->file_path) {
+                        Storage::disk('public')->delete($studentAnswer->file_path);
+                    }
+                    if ($studentAnswer->annotated_file_path) {
+                        Storage::disk('public')->delete($studentAnswer->annotated_file_path);
+                    }
+                }
+
+                Cache::forget('student-login-' . $exam->id . '-' . $result->student_id);
+            }
+
+            StudentAnswer::whereIn('exam_result_id', $resultIds)
+                ->orWhereIn('question_id', $questionIds)
+                ->delete();
+            $exam->examResults()->delete();
+            Answer::whereIn('question_id', $questionIds)->delete();
+            $exam->questions()->delete();
+            $exam->delete();
+        });
 
         return redirect()->route('admin.dashboard')
-                        ->with('success', "Exam \"{$exam->exam_name}\" and all its data have been deleted.");
+                        ->with('success', "Exam \"{$examName}\" and all related student data have been permanently deleted.");
     }
 
     // =========================================================
@@ -1059,6 +1382,8 @@ class AdminController extends Controller
             'enable_anti_cheating' => $original->enable_anti_cheating,
             'negative_marking'     => $original->negative_marking,
             'pass_percentage'      => $original->pass_percentage,
+            'mcq_pass_percentage'  => $original->mcq_pass_percentage,
+            'writing_pass_percentage' => $original->writing_pass_percentage,
             'start_time'           => null,
             'end_time'             => null,
             'created_by'           => \Illuminate\Support\Facades\Auth::id(),
@@ -1113,7 +1438,10 @@ class AdminController extends Controller
     public function exportResultsCsv($examId)
     {
         $exam    = Exam::findOrFail($examId);
-        $results = ExamResult::where('exam_id', $exam->id)->orderBy('submitted_at', 'desc')->get();
+        $results = ExamResult::where('exam_id', $exam->id)
+            ->with(['exam.questions.answers', 'studentAnswers.question', 'studentAnswers.answer'])
+            ->orderBy('submitted_at', 'desc')
+            ->get();
 
         $filename = 'results_' . $exam->exam_id . '_' . now()->format('Y-m-d') . '.csv';
 
@@ -1129,32 +1457,40 @@ class AdminController extends Controller
 
             fputcsv($handle, ['Exam Name:', $exam->exam_name]);
             fputcsv($handle, ['Exam ID:', $exam->exam_id]);
-            fputcsv($handle, ['Pass Percentage:', ($exam->pass_percentage ?? 40) . '%']);
+            fputcsv($handle, ['MCQ Pass %:', $exam->mcqPassPercentage() . '%']);
+            fputcsv($handle, ['Writing Pass %:', $exam->writingPassPercentage() . '%']);
             fputcsv($handle, ['Generated On:', now()->format('Y-m-d H:i:s')]);
             fputcsv($handle, []);
 
             fputcsv($handle, [
-                'Student ID', 'Index No', 'Score', 'Total Marks',
-                'Correct Answers', 'Total Questions', 'Percentage',
-                'Pass/Fail', 'Time Taken', 'Tab Violations', 'Submitted At'
+                'Student ID', 'Index No', 'MCQ Score', 'MCQ Total', 'MCQ %', 'MCQ Pass/Fail',
+                'Writing Score', 'Writing Total', 'Writing %', 'Writing Pass/Fail',
+                'Overall Score', 'Total Marks', 'Overall %', 'Overall Pass/Fail',
+                'Time Taken', 'Tab Violations', 'Submitted At'
             ]);
 
-            $passMark = $exam->pass_percentage ?? 40;
             foreach ($results as $r) {
-                $total   = $r->total_marks ?: ($r->total_questions ?: 1);
-                $pct     = $total > 0 ? round(($r->score / $total) * 100, 2) : 0;
-                $passed  = $pct >= $passMark ? 'PASS' : 'FAIL';
+                $s = $r->evaluateSections();
+                $overall = !$s['overall_ready'] ? 'PENDING' : ($s['overall_passed'] ? 'PASS' : 'FAIL');
+                $mcqStatus = !$s['has_mcq'] ? 'N/A' : ($s['mcq_passed'] ? 'PASS' : 'FAIL');
+                $writeStatus = !$s['has_writing'] ? 'N/A' : (!$s['writing_fully_graded'] ? 'PENDING' : ($s['writing_passed'] ? 'PASS' : 'FAIL'));
                 $minutes = $r->time_taken_seconds ? floor($r->time_taken_seconds / 60) . 'm ' . ($r->time_taken_seconds % 60) . 's' : 'N/A';
 
                 fputcsv($handle, [
                     $r->student_id,
                     $r->index_no,
-                    $r->score,
-                    $r->total_marks,
-                    $r->correct_answers,
-                    $r->total_questions,
-                    $pct . '%',
-                    $passed,
+                    $s['mcq_obtained'],
+                    $s['mcq_total'],
+                    ($s['mcq_percentage'] ?? '—') . ($s['mcq_percentage'] !== null ? '%' : ''),
+                    $mcqStatus,
+                    $s['writing_fully_graded'] ? $s['writing_obtained'] : 'Pending',
+                    $s['writing_total'],
+                    $s['writing_percentage'] !== null ? $s['writing_percentage'] . '%' : 'Pending',
+                    $writeStatus,
+                    $s['overall_ready'] ? $s['obtained'] : 'Pending',
+                    $s['total'],
+                    $s['overall_percentage'] !== null ? $s['overall_percentage'] . '%' : 'Pending',
+                    $overall,
                     $minutes,
                     $r->tab_switch_count ?? 0,
                     $r->submitted_at->format('Y-m-d H:i:s'),
@@ -1174,6 +1510,49 @@ class AdminController extends Controller
     {
         $admins = \App\Models\User::where('role', 'admin')->orderBy('created_at', 'desc')->get();
         return view('admin.manage-admins', compact('admins'));
+    }
+
+    public function manageStudents()
+    {
+        $students = \App\Models\User::whereIn('role', ['student', 'inactive_student'])
+            ->latest()->get();
+        return view('admin.students', compact('students'));
+    }
+
+    public function storeStudent(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'username' => 'required|string|max:100|unique:users,username',
+            'password' => 'required|string|min:6|confirmed',
+            'address' => 'nullable|string|max:255',
+            'college' => 'nullable|string|max:255',
+            'student_group' => 'nullable|in:Science,Arts,Commerce',
+            'whatsapp' => 'nullable|string|max:30',
+            'index_no' => 'nullable|string|max:100',
+        ]);
+
+        $data['email'] = $data['username'] . '@student.local';
+        $data['password'] = \Illuminate\Support\Facades\Hash::make($data['password']);
+        $data['role'] = 'student';
+        \App\Models\User::create($data);
+
+        return redirect()->route('admin.students')->with('success', "Student account for \"{$data['name']}\" created successfully.");
+    }
+
+    public function deleteStudent($userId)
+    {
+        $student = \App\Models\User::whereIn('role', ['student', 'inactive_student'])->findOrFail($userId);
+        $student->delete();
+        return redirect()->route('admin.students')->with('success', 'Student account deleted.');
+    }
+
+    public function toggleStudentStatus($userId)
+    {
+        $student = \App\Models\User::whereIn('role', ['student', 'inactive_student'])->findOrFail($userId);
+        $student->role = $student->role === 'student' ? 'inactive_student' : 'student';
+        $student->save();
+        return redirect()->route('admin.students')->with('success', 'Student account status updated.');
     }
 
     public function storeAdmin(Request $request)

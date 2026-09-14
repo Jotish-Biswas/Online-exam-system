@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>@yield('title', 'Exam Management System')</title>
+    <title>@yield('title', config('brand.name'))</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     @vite(['resources/css/app.css'])
@@ -15,12 +15,12 @@
             @if(request()->is('admin*'))
             <a class="navbar-brand" href="{{ route('admin.dashboard') }}">
                 <i class="fas fa-graduation-cap me-2"></i>
-                Exam Management System
+                {{ config('brand.name') }}
             </a>
             @else
             <span class="navbar-brand" style="cursor: default;">
                 <i class="fas fa-graduation-cap me-2"></i>
-                Exam Management System
+                {{ config('brand.name') }}
             </span>
             @endif
             <div class="navbar-nav ms-auto">

@@ -4,6 +4,7 @@ use App\Models\Exam;
 use App\Models\Question;
 use App\Models\Answer;
 use App\Models\ExamResult;
+use App\Models\StudentAnswer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -226,7 +227,7 @@ test('student is blocked before exam start_time window', function () {
     $resp->assertSessionHasErrors('exam_id');
 });
 
-test('student is blocked after exam end_time window', function () {
+test('student can take an active exam after its scheduled window without ranking eligibility', function () {
     $exam = Exam::create([
         'exam_id'         => 'SCHED606',
         'exam_name'       => 'Expired Exam',
@@ -241,8 +242,84 @@ test('student is blocked after exam end_time window', function () {
         'index_no'   => 'IDX_SCHED_02',
     ]);
 
-    $resp->assertRedirect();
-    $resp->assertSessionHasErrors('exam_id');
+    $resp->assertRedirect(route('student.exam-preview', $exam->id));
+});
+
+test('only scheduled-window submissions are rank eligible', function () {
+    $exam = Exam::create([
+        'exam_id' => 'RANK808',
+        'exam_name' => 'Ranking Exam',
+        'is_active' => true,
+        'start_time' => now()->subHour(),
+        'end_time' => now()->addHour(),
+    ]);
+
+    $onTime = ExamResult::create([
+        'exam_id' => $exam->id,
+        'student_id' => 'STU_RANK_01',
+        'index_no' => 'IDX_RANK_01',
+        'total_questions' => 1,
+        'total_marks' => 1,
+        'correct_answers' => 1,
+        'score' => 1,
+        'submitted_at' => now(),
+    ]);
+    $late = ExamResult::create([
+        'exam_id' => $exam->id,
+        'student_id' => 'STU_RANK_02',
+        'index_no' => 'IDX_RANK_02',
+        'total_questions' => 1,
+        'total_marks' => 1,
+        'correct_answers' => 1,
+        'score' => 1,
+        'submitted_at' => now()->addHours(2),
+    ]);
+
+    expect($onTime->isRankEligible())->toBeTrue()
+        ->and($late->isRankEligible())->toBeFalse();
+});
+
+test('admin can delete an exam with questions and student answers', function () {
+    $exam = Exam::create([
+        'exam_id' => 'DELETE707',
+        'exam_name' => 'Exam To Delete',
+        'duration_minutes' => 30,
+        'is_active' => true,
+    ]);
+    $question = Question::create([
+        'exam_id' => $exam->id,
+        'question_text' => 'Delete this question',
+        'question_type' => 'single',
+    ]);
+    $answer = Answer::create([
+        'question_id' => $question->id,
+        'answer_text' => 'Answer',
+        'is_correct' => true,
+    ]);
+    $result = ExamResult::create([
+        'exam_id' => $exam->id,
+        'student_id' => 'DELETE_STUDENT',
+        'index_no' => 'DELETE_INDEX',
+        'total_questions' => 1,
+        'correct_answers' => 1,
+        'score' => 1,
+        'submitted_at' => now(),
+    ]);
+    StudentAnswer::create([
+        'exam_result_id' => $result->id,
+        'question_id' => $question->id,
+        'answer_id' => $answer->id,
+    ]);
+
+    $response = $this->withSession(['admin_logged_in' => true])
+        ->delete(route('admin.delete-exam', $exam->id));
+
+    $response->assertRedirect(route('admin.dashboard'))
+        ->assertSessionHas('success');
+    expect(Exam::find($exam->id))->toBeNull()
+        ->and(Question::find($question->id))->toBeNull()
+        ->and(ExamResult::find($result->id))->toBeNull()
+        ->and(StudentAnswer::find($result->id))->toBeNull();
 });
 
 test('exam within schedule window allows student access', function () {
@@ -339,4 +416,131 @@ test('isPassed returns false when score is below pass_percentage', function () {
 
     expect($result)->not->toBeNull()
         ->and($result->isPassed())->toBeFalse();
+});
+
+test('teacher can award writing marks out of question marks and total score updates', function () {
+    \Illuminate\Support\Facades\Storage::fake('public');
+
+    $exam = Exam::create([
+        'exam_id'          => 'WRITE101',
+        'exam_name'        => 'Mixed MCQ and Writing Exam',
+        'duration_minutes' => 60,
+        'is_active'        => true,
+        'negative_marking' => 0,
+    ]);
+
+    $q1 = Question::create([
+        'exam_id'       => $exam->id,
+        'question_text' => '2+2?',
+        'question_type' => 'single',
+        'marks'         => 2.00,
+    ]);
+    $q1correct = Answer::create(['question_id' => $q1->id, 'answer_text' => '4', 'is_correct' => true]);
+    Answer::create(['question_id' => $q1->id, 'answer_text' => '5', 'is_correct' => false]);
+
+    $qWrite = Question::create([
+        'exam_id'               => $exam->id,
+        'question_text'         => 'Write a short essay.',
+        'question_type'         => 'file_upload',
+        'marks'                 => 10.00,
+        'file_upload_settings'  => [
+            'allowed_extensions' => ['pdf'],
+            'max_size_mb'        => 5,
+        ],
+    ]);
+
+    $file = \Illuminate\Http\UploadedFile::fake()->create('essay.pdf', 80, 'application/pdf');
+
+    $this->withSession([
+        'student_exam_id' => $exam->id,
+        'student_id'      => 'STU_WRITE_01',
+        'index_no'        => 'IDX_WRITE_01',
+        'exam_started_at' => now()->timestamp,
+    ])->post(route('student.submit-exam', $exam->id), [
+        'answers' => [
+            $q1->id => $q1correct->id,
+        ],
+        'file_uploads' => [
+            $qWrite->id => $file,
+        ],
+    ])->assertOk();
+
+    $result = ExamResult::where('exam_id', $exam->id)->where('student_id', 'STU_WRITE_01')->first();
+    expect($result)->not->toBeNull()
+        ->and((float) $result->score)->toBe(2.0)
+        ->and((float) $result->total_marks)->toBe(12.0);
+
+    $writingAnswer = \App\Models\StudentAnswer::where('exam_result_id', $result->id)
+        ->where('question_id', $qWrite->id)
+        ->first();
+    expect($writingAnswer)->not->toBeNull();
+
+    $this->withSession(['admin_logged_in' => true])
+        ->put(route('admin.grade-file-submission', $writingAnswer->id), [
+            'manual_score'   => 11,
+            'admin_feedback' => 'Too high',
+        ])
+        ->assertSessionHasErrors('manual_score');
+
+    $this->withSession(['admin_logged_in' => true])
+        ->put(route('admin.grade-file-submission', $writingAnswer->id), [
+            'manual_score'   => 8.5,
+            'admin_feedback' => 'Clear argument',
+        ])
+        ->assertRedirect();
+
+    $result->refresh();
+    $writingAnswer->refresh();
+
+    expect($writingAnswer->is_graded)->toBeTrue()
+        ->and((float) $writingAnswer->manual_score)->toBe(8.5)
+        ->and((float) $result->score)->toBe(10.5);
+});
+
+test('teacher can award writing marks even when no file was uploaded', function () {
+    $exam = Exam::create([
+        'exam_id'          => 'WRITE202',
+        'exam_name'        => 'Writing Only Exam',
+        'duration_minutes' => 30,
+        'is_active'        => true,
+    ]);
+
+    $qWrite = Question::create([
+        'exam_id'              => $exam->id,
+        'question_text'        => 'Write an essay.',
+        'question_type'        => 'file_upload',
+        'marks'                => 20.00,
+        'file_upload_settings' => [
+            'allowed_extensions' => ['pdf'],
+            'max_size_mb'        => 5,
+        ],
+    ]);
+
+    $this->withSession([
+        'student_exam_id' => $exam->id,
+        'student_id'      => 'STU_WRITE_02',
+        'index_no'        => 'IDX_WRITE_02',
+        'exam_started_at' => now()->timestamp,
+    ])->post(route('student.submit-exam', $exam->id), [])->assertOk();
+
+    $result = ExamResult::where('exam_id', $exam->id)->where('student_id', 'STU_WRITE_02')->first();
+    expect($result)->not->toBeNull()->and((float) $result->score)->toBe(0.0);
+
+    $this->withSession(['admin_logged_in' => true])
+        ->put(route('admin.grade-writing-question', [$result->id, $qWrite->id]), [
+            'manual_score' => 0,
+        ])
+        ->assertRedirect();
+
+    $result->refresh();
+    expect((float) $result->score)->toBe(0.0);
+
+    $this->withSession(['admin_logged_in' => true])
+        ->put(route('admin.grade-writing-question', [$result->id, $qWrite->id]), [
+            'manual_score' => 15,
+        ])
+        ->assertRedirect();
+
+    $result->refresh();
+    expect((float) $result->score)->toBe(15.0);
 });
